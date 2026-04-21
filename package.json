@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Official TypeScript SDK for the Tavora agentic intelligence platform.",
   "license": "MIT",
-  "author": "Valiro AI",
+  "author": "Tavora AI",
   "homepage": "https://docs.tavora.ai",
   "repository": {
     "type": "git",
