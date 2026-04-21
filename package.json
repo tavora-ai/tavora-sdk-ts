@@ -7,10 +7,10 @@
   "homepage": "https://docs.tavora.ai",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/valiro-ai/tavora-sdk-ts.git"
+    "url": "git+https://github.com/tavora-ai/tavora-sdk-ts.git"
   },
   "bugs": {
-    "url": "https://github.com/valiro-ai/tavora-sdk-ts/issues"
+    "url": "https://github.com/tavora-ai/tavora-sdk-ts/issues"
   },
   "keywords": [
     "tavora",
