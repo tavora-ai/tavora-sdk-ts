@@ -1,0 +1,52 @@
+{
+  "name": "@tavora/sdk",
+  "version": "0.1.0",
+  "description": "Official TypeScript SDK for the Tavora agentic intelligence platform.",
+  "license": "MIT",
+  "author": "Valiro AI",
+  "homepage": "https://docs.tavora.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/valiro-ai/tavora-sdk-ts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/valiro-ai/tavora-sdk-ts/issues"
+  },
+  "keywords": [
+    "tavora",
+    "ai",
+    "agents",
+    "llm",
+    "rag",
+    "sdk"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

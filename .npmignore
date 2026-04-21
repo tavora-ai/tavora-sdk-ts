@@ -1,0 +1,16 @@
+# Keep the published tarball minimal — ship only dist + src + README + LICENSE.
+# Everything else (tsconfig, CI, lockfile, tests, etc.) stays out.
+
+node_modules
+.github
+.idea
+.vscode
+.DS_Store
+*.log
+tsconfig.json
+tsconfig.*.json
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+.env
+.env.*
