@@ -6,6 +6,10 @@ import type {
   Index,
   CreateIndexInput,
   UpdateIndexInput,
+  File as TavoraFile,
+  UploadFileInput,
+  ListFilesInput,
+  ListFilesResult,
   Collection,
   CollectionDocument,
   FindCollectionInput,
@@ -180,6 +184,74 @@ export class Client {
    *  health checks. */
   getMetrics(): Promise<WorkspaceMetrics> {
     return this.get<WorkspaceMetrics>('/api/sdk/metrics');
+  }
+
+  // ---- files (Storage) ----
+  //
+  // Raw blob storage. Distinct from documents (RAG-indexed) and
+  // indexes (RAG containers). Sha256-keyed dedup on upload — re-
+  // uploading identical bytes returns the existing File.
+
+  /** Upload bytes. Server returns the existing File row when the same
+   *  (workspace, content_sha256) exists; the SDK shape is the same
+   *  either way — caller doesn't need to distinguish. */
+  async uploadFile(input: UploadFileInput): Promise<TavoraFile> {
+    const form = new FormData();
+    const filename =
+      input.filename ?? ('name' in input.file && typeof input.file.name === 'string'
+        ? input.file.name
+        : 'upload.bin');
+    form.set('file', input.file, filename);
+    if (input.filename !== undefined) form.set('filename', input.filename);
+    return this.request<TavoraFile>('POST', '/api/sdk/files', form);
+  }
+
+  async listFiles(input: ListFilesInput = {}): Promise<ListFilesResult> {
+    const params = new URLSearchParams();
+    params.set('limit', String(input.limit && input.limit > 0 ? input.limit : 50));
+    params.set('offset', String(input.offset ?? 0));
+    if (input.contentType) params.set('content_type', input.contentType);
+    if (input.contentSha256) params.set('content_sha256', input.contentSha256);
+    if (input.includeDeleted) params.set('include_deleted', 'true');
+    return this.get<ListFilesResult>(`/api/sdk/files?${params.toString()}`);
+  }
+
+  /** File metadata. For raw bytes use {@link getFileContent}. */
+  getFile(id: string): Promise<TavoraFile> {
+    return this.get<TavoraFile>(`/api/sdk/files/${id}`);
+  }
+
+  /** Stream the raw bytes. Returns a `Response` so the caller controls
+   *  whether to .blob(), .arrayBuffer(), .text(), or pipe. */
+  async getFileContent(id: string): Promise<Response> {
+    const res = await this.fetchImpl(`${this.baseURL}/api/sdk/files/${id}/content`, {
+      method: 'GET',
+      headers: { 'X-API-Key': this.apiKey },
+    });
+    if (!res.ok) {
+      let msg = res.statusText;
+      let code: string | undefined;
+      try {
+        const payload = (await res.json()) as { message?: string; code?: string };
+        msg = payload.message ?? msg;
+        code = payload.code;
+      } catch {
+        // ignore non-JSON
+      }
+      throw new TavoraAPIError(res.status, msg, code);
+    }
+    return res;
+  }
+
+  /** Soft-delete (idempotent). For permanent removal use
+   *  {@link deleteFileHard} — fails if any live document references
+   *  the file (FK ON DELETE RESTRICT). */
+  deleteFile(id: string): Promise<void> {
+    return this.del(`/api/sdk/files/${id}`);
+  }
+
+  deleteFileHard(id: string): Promise<void> {
+    return this.del(`/api/sdk/files/${id}?hard=true`);
   }
 
   // ---- indexes (RAG containers) ----

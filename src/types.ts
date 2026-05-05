@@ -51,6 +51,51 @@ export interface WorkspaceMetrics {
   evals: EvalMetrics;
 }
 
+// ---- files (Storage) ----
+//
+// Workspace-scoped raw blob storage. Distinct from `Document`
+// (RAG-indexed view) and `Index` (RAG container) — Files is the
+// universal-bytes primitive everything else can reference.
+// Sha256-keyed dedup short-circuit on upload: re-uploading identical
+// bytes returns the existing File row instead of creating a duplicate.
+
+export interface File {
+  id: string;
+  workspace_id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  /** Hex-encoded sha256 of the bytes. Use as the dedup probe. */
+  content_sha256: string;
+  on_disk_path: string;
+  created_by_api_key_id: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export interface UploadFileInput {
+  /** File-like payload. In the browser pass a `File`; in Node use
+   *  `openAsBlob(path)` or `new Blob([await readFile(path)])`. */
+  file: Blob;
+  /** Optional filename override; required when the Blob has no `.name`. */
+  filename?: string;
+}
+
+export interface ListFilesInput {
+  limit?: number;
+  offset?: number;
+  contentType?: string;
+  contentSha256?: string;
+  includeDeleted?: boolean;
+}
+
+export interface ListFilesResult {
+  data: File[];
+  total: number;
+  has_more: boolean;
+}
+
 // ---- collections ----
 // Workspace-scoped JSON document store — mongo-style buckets the agent
 // uses for typed working memory (lists of leads, scraped rows,
