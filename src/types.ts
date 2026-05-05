@@ -51,6 +51,58 @@ export interface WorkspaceMetrics {
   evals: EvalMetrics;
 }
 
+// ---- collections ----
+// Workspace-scoped JSON document store — mongo-style buckets the agent
+// uses for typed working memory (lists of leads, scraped rows,
+// normalized records). Distinct from `Store` (RAG vectors) and from
+// per-run `data`. Filter operators: $gt, $gte, $lt, $lte, $ne, $in.
+// Callbacks (.onInsert/.onUpdate/.onRemove/.onQuery) are sandbox-only —
+// they're session-scoped goja hooks with no SDK equivalent.
+
+export interface Collection {
+  name: string;
+  count: number;
+}
+
+/** Operator object accepted as a filter value. Combine in one map for
+ *  range queries: `{age: {$gte: 25, $lte: 35}}`. */
+export interface FilterOps {
+  $gt?: unknown;
+  $gte?: unknown;
+  $lt?: unknown;
+  $lte?: unknown;
+  $ne?: unknown;
+  $in?: unknown[];
+}
+
+/** Filter shape: per-field equality (`{role: "engineer"}`) or operator
+ *  object (`{age: {$gte: 30}}`). Mix freely across fields. */
+export type CollectionFilter = Record<string, unknown | FilterOps>;
+
+/** A document body. `_id` is server-assigned and surfaced on every
+ *  find/findOne result; do not set it manually. */
+export type CollectionDocument = Record<string, unknown>;
+
+export interface FindCollectionInput {
+  filter?: CollectionFilter;
+  /** Field name; prefix with `-` for descending. */
+  sort?: string;
+  limit?: number;
+  skip?: number;
+}
+
+export interface UpdateCollectionInput {
+  filter: CollectionFilter;
+  /** Top-level keys overwrite; nothing nested gets merged (mongo $set semantics). */
+  updates: CollectionDocument;
+}
+
+export interface RemoveCollectionInput {
+  /** Required — empty filter is rejected by the server. Use
+   *  `dropCollection(name)` to drop the bucket entirely. */
+  filter: CollectionFilter;
+}
+
 // ---- stores ----
 
 export interface Store {

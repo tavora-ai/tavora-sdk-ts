@@ -6,6 +6,11 @@ import type {
   Store,
   CreateStoreInput,
   UpdateStoreInput,
+  Collection,
+  CollectionDocument,
+  FindCollectionInput,
+  UpdateCollectionInput,
+  RemoveCollectionInput,
   Document,
   ListDocumentsInput,
   ListDocumentsResult,
@@ -189,6 +194,95 @@ export class Client {
   }
   deleteStore(id: string): Promise<void> {
     return this.del(`/api/sdk/stores/${id}`);
+  }
+
+  // ---- collections ----
+  // Mongo-style JSON document buckets the agent uses for typed working
+  // memory. Distinct from `stores` (RAG vectors) and from per-run `data`.
+  // Filter operators: $gt, $gte, $lt, $lte, $ne, $in. Callbacks
+  // (.onInsert/.onUpdate/.onRemove/.onQuery) are sandbox-only.
+
+  async listCollections(): Promise<Collection[]> {
+    const resp = await this.get<{ collections: Collection[] }>(
+      '/api/sdk/collections',
+    );
+    return resp.collections;
+  }
+
+  /** Idempotently reserve a collection name. Returns the (possibly
+   *  pre-existing) collection record. */
+  async createCollection(name: string): Promise<Collection> {
+    const resp = await this.post<{ collection: Collection }>(
+      '/api/sdk/collections',
+      { name },
+    );
+    return resp.collection;
+  }
+
+  /** Drop the bucket entirely (rows + metadata). Idempotent — dropping
+   *  a missing collection is not an error. */
+  dropCollection(name: string): Promise<void> {
+    return this.del(`/api/sdk/collections/${encodeURIComponent(name)}`);
+  }
+
+  /** Insert one document; returns the server-assigned _id. */
+  async insertCollectionDocument(
+    name: string,
+    document: CollectionDocument,
+  ): Promise<number> {
+    const resp = await this.post<{ id: number }>(
+      `/api/sdk/collections/${encodeURIComponent(name)}/documents`,
+      { document },
+    );
+    return resp.id;
+  }
+
+  /** Insert a batch in order; returns assigned _ids in the same order. */
+  async insertCollectionDocuments(
+    name: string,
+    documents: CollectionDocument[],
+  ): Promise<number[]> {
+    const resp = await this.post<{ ids: number[] }>(
+      `/api/sdk/collections/${encodeURIComponent(name)}/documents`,
+      { documents },
+    );
+    return resp.ids;
+  }
+
+  /** Run a filter+opts query. Empty input returns every document. */
+  async findCollectionDocuments(
+    name: string,
+    input: FindCollectionInput = {},
+  ): Promise<CollectionDocument[]> {
+    const resp = await this.post<{ documents: CollectionDocument[] }>(
+      `/api/sdk/collections/${encodeURIComponent(name)}/find`,
+      input,
+    );
+    return resp.documents;
+  }
+
+  /** Merge `updates` into every doc matching `filter`. Returns count touched. */
+  async updateCollectionDocuments(
+    name: string,
+    input: UpdateCollectionInput,
+  ): Promise<number> {
+    const resp = await this.post<{ updated: number }>(
+      `/api/sdk/collections/${encodeURIComponent(name)}/update`,
+      input,
+    );
+    return resp.updated;
+  }
+
+  /** Delete every doc matching `filter`. Returns count removed. */
+  async removeCollectionDocuments(
+    name: string,
+    input: RemoveCollectionInput,
+  ): Promise<number> {
+    const resp = await this.post<{ removed: number }>(
+      `/api/sdk/collections/${encodeURIComponent(name)}/remove`,
+      input,
+    );
+    return resp.removed;
   }
 
   // ---- documents ----
