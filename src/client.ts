@@ -15,8 +15,10 @@ import type {
   ListDocumentsInput,
   ListDocumentsResult,
   UploadDocumentInput,
+  GetDocumentByNameInput,
   SearchInput,
   SearchResult,
+  DocumentSearchResult,
   ChatCompletionInput,
   ChatCompletionResult,
   Conversation,
@@ -123,14 +125,18 @@ export class Client {
     if (!res.ok) {
       let msg = res.statusText;
       let code: string | undefined;
+      const details: Record<string, unknown> = {};
       try {
-        const payload = (await res.json()) as { message?: string; code?: string };
-        msg = payload.message ?? msg;
-        code = payload.code;
+        const payload = (await res.json()) as Record<string, unknown>;
+        if (typeof payload['message'] === 'string') msg = payload['message'];
+        if (typeof payload['code'] === 'string') code = payload['code'];
+        for (const [k, v] of Object.entries(payload)) {
+          if (k !== 'message' && k !== 'code') details[k] = v;
+        }
       } catch {
         // non-JSON error body
       }
-      throw new TavoraAPIError(res.status, msg, code);
+      throw new TavoraAPIError(res.status, msg, code, details);
     }
     return (await res.json()) as T;
   }
@@ -291,6 +297,17 @@ export class Client {
    * Upload a document to a store. Accepts a `Blob` (browser `File`, or
    * `new Blob([...])` in Node 20+). For filesystem paths in Node, use
    * `openAsBlob(path)` from `node:fs`.
+   *
+   * Provenance fields (`name`, `source`, `task`, `type`, `tags`,
+   * `metadata`, `parentId`) round-trip through document metadata.
+   * Setting `name` enables version-on-rewrite — re-uploading the same
+   * (storeId, name) bumps `version` instead of creating a duplicate.
+   * Pass `ifVersion` for optimistic concurrency (409 on mismatch).
+   *
+   * Indexable file types (.pdf, .md, .txt, .csv, .html, .docx, .xlsx,
+   * images) get chunk + embed processing. Other types are stored opaque
+   * (`status: "stored"`) — listable, fetchable, deletable, but not
+   * semantically searchable.
    */
   async uploadDocument(input: UploadDocumentInput): Promise<Document> {
     const form = new FormData();
@@ -300,6 +317,18 @@ export class Client {
         ? input.file.name
         : 'upload.bin');
     form.set('file', input.file, filename);
+
+    if (input.name !== undefined) form.set('name', input.name);
+    if (input.parentId !== undefined) form.set('parent_id', input.parentId);
+    if (input.ifVersion !== undefined) form.set('if_version', String(input.ifVersion));
+
+    const meta: Record<string, string> = { ...(input.metadata ?? {}) };
+    if (input.source !== undefined) meta.source = input.source;
+    if (input.task !== undefined) meta.task = input.task;
+    if (input.type !== undefined) meta.type = input.type;
+    if (input.tags) Object.assign(meta, input.tags);
+    if (Object.keys(meta).length > 0) form.set('metadata', JSON.stringify(meta));
+
     return this.request<Document>(
       'POST',
       `/api/sdk/stores/${input.storeId}/documents`,
@@ -310,23 +339,86 @@ export class Client {
   async listDocuments(input: ListDocumentsInput = {}): Promise<ListDocumentsResult> {
     const limit = input.limit && input.limit > 0 ? input.limit : 50;
     const offset = input.offset ?? 0;
-    const path = input.storeId
-      ? `/api/sdk/stores/${input.storeId}/documents?limit=${limit}&offset=${offset}`
-      : `/api/sdk/documents?limit=${limit}&offset=${offset}`;
-    return this.get<ListDocumentsResult>(path);
+    const params = new URLSearchParams();
+    params.set('limit', String(limit));
+    params.set('offset', String(offset));
+    if (input.q) params.set('q', input.q);
+    if (input.source) params.set('source', input.source);
+    if (input.includeDeleted) params.set('include_deleted', 'true');
+    if (input.parentId) params.set('parent_id', input.parentId);
+    if (input.derivedFrom) params.set('derived_from', input.derivedFrom);
+    if (input.contentSha256) params.set('content_sha256', input.contentSha256);
+    if (input.duplicateOf) params.set('duplicate_of', input.duplicateOf);
+    if (input.metadata) {
+      for (const [k, v] of Object.entries(input.metadata)) {
+        params.set(`metadata.${k}`, v);
+      }
+    }
+    const base = input.storeId
+      ? `/api/sdk/stores/${input.storeId}/documents`
+      : '/api/sdk/documents';
+    return this.get<ListDocumentsResult>(`${base}?${params.toString()}`);
   }
+
+  /** Fetch a document by ID. Soft-deleted documents return 404. */
   getDocument(id: string): Promise<Document> {
     return this.get<Document>(`/api/sdk/documents/${id}`);
   }
+
+  /** Resolve the latest non-deleted version of (storeId, name), or a
+   *  specific historical version when `version` is set. The agent-facing
+   *  addressing primitive — "give me the current plan." */
+  getDocumentByName(input: GetDocumentByNameInput): Promise<Document> {
+    const path = `/api/sdk/stores/${input.storeId}/documents/by-name/${encodeURIComponent(input.name)}`;
+    return this.get<Document>(input.version !== undefined ? `${path}?version=${input.version}` : path);
+  }
+
+  /** All versions of (storeId, name), newest first, including
+   *  soft-deleted ones — the artifact history. */
+  async listDocumentVersions(storeId: string, name: string): Promise<Document[]> {
+    const resp = await this.get<{ versions: Document[] }>(
+      `/api/sdk/stores/${storeId}/documents/by-name/${encodeURIComponent(name)}/versions`,
+    );
+    return resp.versions;
+  }
+
+  /** Soft-delete a document (sets `deleted_at` and clears `is_latest`).
+   *  Use {@link deleteDocumentHard} for permanent removal. */
   deleteDocument(id: string): Promise<void> {
     return this.del(`/api/sdk/documents/${id}`);
   }
 
+  /** Permanently delete a document and its on-disk file. Sparingly —
+   *  soft-delete is the default for a reason. */
+  deleteDocumentHard(id: string): Promise<void> {
+    return this.del(`/api/sdk/documents/${id}?hard=true`);
+  }
+
+  /** Chunk-shaped semantic search. Use {@link searchDocuments} for
+   *  document-shaped, server-deduped results. */
   async search(input: SearchInput): Promise<SearchResult[]> {
     const path = input.storeId
       ? `/api/sdk/stores/${input.storeId}/search`
       : '/api/sdk/search';
-    const resp = await this.post<{ results: SearchResult[] }>(path, input);
+    const resp = await this.post<{ results: SearchResult[] }>(path, {
+      ...input,
+      result_type: 'chunk',
+    });
+    return resp.results;
+  }
+
+  /** Document-shaped semantic search — one row per distinct document,
+   *  ranked by best-chunk score, with that chunk inlined as a preview.
+   *  Use when the agent's question is "what artifacts are about X"
+   *  rather than "what passages are about X". */
+  async searchDocuments(input: SearchInput): Promise<DocumentSearchResult[]> {
+    const path = input.storeId
+      ? `/api/sdk/stores/${input.storeId}/search`
+      : '/api/sdk/search';
+    const resp = await this.post<{ results: DocumentSearchResult[] }>(path, {
+      ...input,
+      result_type: 'document',
+    });
     return resp.results;
   }
 
@@ -378,6 +470,21 @@ export class Client {
   }
   deleteAgentSession(id: string): Promise<void> {
     return this.del(`/api/sdk/agents/${id}`);
+  }
+
+  /** Resolve an `input_request` event so the paused SSE stream can
+   *  continue. Encode `value` per the request's inputType:
+   *    - "confirm" → boolean
+   *    - "choice"  → string (one of the offered options)
+   *    - "text"    → string
+   *  The server matches by requestId; calling this for an
+   *  already-resolved or unknown requestId returns 4xx. */
+  respondToAgentInput(sessionID: string, requestID: string, value: unknown): Promise<void> {
+    return this.request<void>(
+      'POST',
+      `/api/sdk/agents/${sessionID}/input`,
+      { request_id: requestID, value },
+    );
   }
 
   /**

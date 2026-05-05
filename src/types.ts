@@ -133,10 +133,29 @@ export interface Document {
   filename: string;
   content_type: string;
   file_size: number;
+  /** "pending" | "processing" | "ready" | "stored" | "error" — "stored"
+   *  is for opaque artifacts (e.g. .json, source code) that aren't run
+   *  through the chunk + embed pipeline but still round-trip via list/get. */
   status: string;
   error_message: string | null;
   page_count: number | null;
   chunk_count: number;
+  /** Optional logical name; uniqueness is enforced over (store, name)
+   *  among latest non-deleted versions. */
+  name: string | null;
+  version: number;
+  is_latest: boolean;
+  /** Free-form provenance JSON. Conventionally includes `source`,
+   *  `task`, `type`, `tags.*`. */
+  metadata: Record<string, unknown>;
+  parent_id: string | null;
+  created_by_api_key_id: string | null;
+  /** Hex-encoded sha256 of the uploaded bytes. Server-computed on
+   *  upload; stable across replays. Use to detect duplicates via
+   *  ListDocumentsInput.contentSha256 / duplicateOf. */
+  content_sha256: string | null;
+  /** ISO 8601 when soft-deleted; null for live documents. */
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -145,6 +164,26 @@ export interface ListDocumentsInput {
   limit?: number;
   offset?: number;
   storeId?: string;
+  /** ILIKE filter on filename. */
+  q?: string;
+  /** metadata->>'source' equality filter — shorthand for the
+   *  most-asked-for provenance dimension. */
+  source?: string;
+  /** metadata @> jsonb containment filter. */
+  metadata?: Record<string, string>;
+  /** Limit results to artifacts whose parent_id equals this ID.
+   *  The natural way to fetch the auto-generated markdown sibling of a
+   *  PDF: pass the PDF's ID here. */
+  parentId?: string;
+  /** Filter on metadata.derived_from. The pipeline stamps "extraction"
+   *  on auto-generated markdown siblings. */
+  derivedFrom?: string;
+  /** Match exact content hash. */
+  contentSha256?: string;
+  /** Sugar over contentSha256 — server resolves this document's hash
+   *  and excludes the source itself. "Is this PDF already uploaded?" */
+  duplicateOf?: string;
+  includeDeleted?: boolean;
 }
 
 export interface ListDocumentsResult {
@@ -161,6 +200,27 @@ export interface UploadDocumentInput {
   /** Optional filename override. Required when `file` is a bare `Blob`
    * (no `.name`). */
   filename?: string;
+
+  // ---- provenance (round-tripped via document metadata) ----
+
+  /** Logical name; enables version-on-rewrite for (storeId, name). */
+  name?: string;
+  /** Shorthand for metadata.source — which agent produced the artifact. */
+  source?: string;
+  /** Shorthand for metadata.task — logical task or session ID. */
+  task?: string;
+  /** Shorthand for metadata.type — patch / spec / note / state / etc. */
+  type?: string;
+  /** Flat key=value tags merged into metadata. */
+  tags?: Record<string, string>;
+  /** Arbitrary metadata; merged with the shorthand fields above. */
+  metadata?: Record<string, string>;
+  /** ID of an existing document this artifact derives from. */
+  parentId?: string;
+
+  /** Optimistic concurrency. Server returns 409 when the latest
+   *  (storeId, name) version doesn't equal `ifVersion`. */
+  ifVersion?: number;
 }
 
 export interface SearchInput {
@@ -168,15 +228,53 @@ export interface SearchInput {
   storeId?: string;
   top_k?: number;
   min_score?: number;
+  /** Response shape selector. Default "chunk" (one row per chunk).
+   *  "document" returns one row per distinct document with the best
+   *  chunk inlined as a preview — server-side dedup. Use the
+   *  `searchDocuments` method to get the typed document-shaped
+   *  response without flipping this manually. */
+  result_type?: 'chunk' | 'document';
 }
 
 export interface SearchResult {
   chunk_id: string;
   document_id: string;
   filename: string;
+  /** Logical name of the parent document (null if the artifact had none). */
+  document_name: string | null;
+  /** Provenance metadata of the parent document — avoids an N+1 fetch
+   *  when the caller wants to render `source` per hit. */
+  document_metadata: Record<string, unknown>;
   content: string;
   score: number;
   chunk_index: number;
+  metadata: Record<string, unknown>;
+}
+
+/** Document-shaped search result returned by `searchDocuments` (or
+ *  `search` with `result_type: "document"`). One row per distinct
+ *  document with the best chunk inlined as a preview. */
+export interface DocumentSearchResult {
+  document_id: string;
+  store_id: string;
+  filename: string;
+  document_name: string | null;
+  document_metadata: Record<string, unknown>;
+  parent_id: string | null;
+  content_sha256: string | null;
+  score: number;
+  best_chunk: {
+    chunk_id: string;
+    chunk_index: number;
+    preview: string;
+  };
+}
+
+export interface GetDocumentByNameInput {
+  storeId: string;
+  name: string;
+  /** Pin a specific historical version; omit for the latest non-deleted one. */
+  version?: number;
 }
 
 // ---- chat ----
@@ -312,6 +410,43 @@ export interface RunSummary {
   };
 }
 
+/** Per-LLM-call token usage on a step event. Mirrors the server's
+ *  `internal/agent.CallTokens`. Only emitted on events that involve an
+ *  LLM call (think / respond) — undefined for tool_call, tool_result,
+ *  error, input_request, done. */
+export interface CallTokens {
+  prompt: number;
+  completion: number;
+}
+
+/** Discriminator values for `AgentEvent.type`. Tavora's reasoning
+ *  model is "agent writes JavaScript, sandbox runs it" — these
+ *  event types reflect that, not the function-calling vocabulary
+ *  (think/tool_call/tool_result) of other agent platforms. New types
+ *  are additive — consumers that don't recognize one should treat it
+ *  as an opaque step rather than crashing. */
+export const EventType = {
+  /** Partial LLM output (text emitted before a JS block, side-channel
+   *  sandbox logging). */
+  SandboxEvent: 'sandbox_event',
+  /** Agent emitted a complete JS block; sandbox about to run it. */
+  ExecuteJS: 'execute_js',
+  /** Sandbox finished running a block. */
+  ExecuteJSResult: 'execute_js_result',
+  /** Sandbox primitive mutated agent-session data. */
+  DataUpdate: 'data_update',
+  /** Agent's final natural-language answer. */
+  Response: 'response',
+  /** Agent paused for user input — see asInputRequest + respondToAgentInput. */
+  InputRequest: 'input_request',
+  /** Terminal — Summary holds run aggregates. */
+  Done: 'done',
+  /** Terminal — Content holds the error message. */
+  Error: 'error',
+} as const;
+
+export type EventTypeName = (typeof EventType)[keyof typeof EventType];
+
 export interface AgentEvent {
   type: string;
   content?: string;
@@ -319,6 +454,49 @@ export interface AgentEvent {
   args?: Record<string, unknown>;
   result?: unknown;
   summary?: RunSummary;
+  /** Per-call token usage. Server emits this on think / respond events.
+   *  Pre-Phase-A this field was missing from the SDK type, silently
+   *  dropping the data. */
+  tokens?: CallTokens;
+}
+
+/** isTerminalEvent ends the SSE iteration. Use to break out of
+ *  `for await` loops without comparing strings. */
+export function isTerminalEvent(e: AgentEvent): boolean {
+  return e.type === EventType.Done || e.type === EventType.Error;
+}
+
+/** Typed view of an `input_request` event. The agent has paused and is
+ *  waiting for `respondToAgentInput(sessionId, requestId, value)` —
+ *  block until you have the value, then call respond. */
+export interface AgentInputRequest {
+  requestId: string;
+  /** "confirm" | "choice" | "text" */
+  inputType: string;
+  message: string;
+  /** Populated when inputType === "choice". */
+  options: string[];
+  placeholder: string;
+}
+
+/** Returns a typed AgentInputRequest if the event is `input_request`,
+ *  null otherwise. */
+export function asInputRequest(e: AgentEvent): AgentInputRequest | null {
+  if (e.type !== EventType.InputRequest) return null;
+  const a = (e.args ?? {}) as Record<string, unknown>;
+  const optionsRaw = a['options'];
+  return {
+    requestId: typeof a['request_id'] === 'string' ? (a['request_id'] as string) : '',
+    inputType: typeof a['input_type'] === 'string' ? (a['input_type'] as string) : '',
+    message:
+      typeof a['message'] === 'string' && (a['message'] as string) !== ''
+        ? (a['message'] as string)
+        : (e.content ?? ''),
+    options: Array.isArray(optionsRaw)
+      ? (optionsRaw.filter((o) => typeof o === 'string') as string[])
+      : [],
+    placeholder: typeof a['placeholder'] === 'string' ? (a['placeholder'] as string) : '',
+  };
 }
 
 // ---- MCP servers ----
