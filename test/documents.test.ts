@@ -29,14 +29,14 @@ describe('listDocuments', () => {
 
   it('forwards every filter to the query string', async () => {
     const ts = new TestServer();
-    ts.on('GET', '/api/sdk/stores/st_1/documents', 200, {
+    ts.on('GET', '/api/sdk/indexes/st_1/documents', 200, {
       data: [],
       total: 0,
       has_more: false,
     });
 
     await ts.client().listDocuments({
-      storeId: 'st_1',
+      indexId: 'st_1',
       limit: 10,
       offset: 5,
       q: 'readme',
@@ -66,33 +66,33 @@ describe('listDocuments', () => {
 describe('getDocumentByName', () => {
   it('hits the by-name endpoint and resolves latest by default', async () => {
     const ts = new TestServer();
-    ts.on('GET', '/api/sdk/stores/st_1/documents/by-name/current_plan', 200, {
+    ts.on('GET', '/api/sdk/indexes/st_1/documents/by-name/current_plan', 200, {
       id: 'doc_42',
       name: 'current_plan',
       version: 3,
     } as Document);
 
     const doc = await ts.client().getDocumentByName({
-      storeId: 'st_1',
+      indexId: 'st_1',
       name: 'current_plan',
     });
 
     expect(doc.id).toBe('doc_42');
     expect(doc.version).toBe(3);
     const url = new URL(ts.lastRequest().url);
-    expect(url.pathname).toBe('/api/sdk/stores/st_1/documents/by-name/current_plan');
+    expect(url.pathname).toBe('/api/sdk/indexes/st_1/documents/by-name/current_plan');
     expect(url.searchParams.get('version')).toBeNull();
   });
 
   it('passes the version param when pinned', async () => {
     const ts = new TestServer();
-    ts.on('GET', '/api/sdk/stores/st_1/documents/by-name/current_plan', 200, {
+    ts.on('GET', '/api/sdk/indexes/st_1/documents/by-name/current_plan', 200, {
       id: 'doc_42',
       version: 2,
     } as Document);
 
     await ts.client().getDocumentByName({
-      storeId: 'st_1',
+      indexId: 'st_1',
       name: 'current_plan',
       version: 2,
     });
@@ -103,17 +103,17 @@ describe('getDocumentByName', () => {
 
   it('URL-encodes names with special characters', async () => {
     const ts = new TestServer();
-    ts.on('GET', '/api/sdk/stores/st_1/documents/by-name/sub%2Fname', 200, {
+    ts.on('GET', '/api/sdk/indexes/st_1/documents/by-name/sub%2Fname', 200, {
       id: 'x',
     } as Document);
 
     await ts.client().getDocumentByName({
-      storeId: 'st_1',
+      indexId: 'st_1',
       name: 'sub/name',
     });
 
     const url = new URL(ts.lastRequest().url);
-    expect(url.pathname).toBe('/api/sdk/stores/st_1/documents/by-name/sub%2Fname');
+    expect(url.pathname).toBe('/api/sdk/indexes/st_1/documents/by-name/sub%2Fname');
   });
 });
 
@@ -122,7 +122,7 @@ describe('listDocumentVersions', () => {
     const ts = new TestServer();
     ts.on(
       'GET',
-      '/api/sdk/stores/st_1/documents/by-name/current_plan/versions',
+      '/api/sdk/indexes/st_1/documents/by-name/current_plan/versions',
       200,
       {
         versions: [
@@ -141,15 +141,15 @@ describe('listDocumentVersions', () => {
 describe('uploadDocument', () => {
   it('encodes provenance + name into the multipart body', async () => {
     const ts = new TestServer();
-    ts.on('POST', '/api/sdk/stores/st_1/documents', 201, {
+    ts.on('POST', '/api/sdk/indexes/st_1/documents', 201, {
       id: 'doc_new',
-      store_id: 'st_1',
+      index_id: 'st_1',
       filename: 'plan.md',
     } as Document);
 
     const file = new Blob(['# plan\n'], { type: 'text/markdown' });
     await ts.client().uploadDocument({
-      storeId: 'st_1',
+      indexId: 'st_1',
       file,
       filename: 'plan.md',
       name: 'current_plan',
@@ -163,7 +163,7 @@ describe('uploadDocument', () => {
     expect(req.method).toBe('POST');
     expect(req.formData).not.toBeNull();
     const fd = req.formData!;
-    expect(fd.get('store_id')).toBe('st_1');
+    expect(fd.get('index_id')).toBe('st_1');
     expect(fd.get('name')).toBe('current_plan');
     const meta = JSON.parse(fd.get('metadata') as string) as Record<string, string>;
     expect(meta.source).toBe('claude-code');
@@ -174,10 +174,10 @@ describe('uploadDocument', () => {
 
   it('forwards if_version for optimistic concurrency', async () => {
     const ts = new TestServer();
-    ts.on('POST', '/api/sdk/stores/st_1/documents', 201, { id: 'x' } as Document);
+    ts.on('POST', '/api/sdk/indexes/st_1/documents', 201, { id: 'x' } as Document);
 
     await ts.client().uploadDocument({
-      storeId: 'st_1',
+      indexId: 'st_1',
       file: new Blob(['v3'], { type: 'text/markdown' }),
       filename: 'plan.md',
       name: 'current_plan',
@@ -190,7 +190,7 @@ describe('uploadDocument', () => {
 
   it('surfaces structured server errors with code and details', async () => {
     const ts = new TestServer();
-    ts.on('POST', '/api/sdk/stores/st_1/documents', 409, {
+    ts.on('POST', '/api/sdk/indexes/st_1/documents', 409, {
       code: 'version_conflict',
       message: 'if_version does not match current version',
       current_version: 7,
@@ -198,7 +198,7 @@ describe('uploadDocument', () => {
 
     await expect(
       ts.client().uploadDocument({
-        storeId: 'st_1',
+        indexId: 'st_1',
         file: new Blob(['v100']),
         filename: 'plan.md',
         name: 'current_plan',
@@ -273,7 +273,7 @@ describe('searchDocuments', () => {
       results: [
         {
           document_id: 'doc_1',
-          store_id: 'st_1',
+          index_id: 'st_1',
           filename: 'plan.md',
           document_name: 'plan',
           document_metadata: { source: 'claude-code' },

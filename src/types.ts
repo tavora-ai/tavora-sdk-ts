@@ -54,7 +54,7 @@ export interface WorkspaceMetrics {
 // ---- collections ----
 // Workspace-scoped JSON document store — mongo-style buckets the agent
 // uses for typed working memory (lists of leads, scraped rows,
-// normalized records). Distinct from `Store` (RAG vectors) and from
+// normalized records). Distinct from `Index` (RAG vectors) and from
 // per-run `data`. Filter operators: $gt, $gte, $lt, $lte, $ne, $in.
 // Callbacks (.onInsert/.onUpdate/.onRemove/.onQuery) are sandbox-only —
 // they're session-scoped goja hooks with no SDK equivalent.
@@ -105,7 +105,7 @@ export interface RemoveCollectionInput {
 
 // ---- stores ----
 
-export interface Store {
+export interface Index {
   id: string;
   workspace_id: string;
   name: string;
@@ -114,12 +114,12 @@ export interface Store {
   updated_at: string;
 }
 
-export interface CreateStoreInput {
+export interface CreateIndexInput {
   name: string;
   description?: string;
 }
 
-export interface UpdateStoreInput {
+export interface UpdateIndexInput {
   name: string;
   description?: string;
 }
@@ -129,7 +129,7 @@ export interface UpdateStoreInput {
 export interface Document {
   id: string;
   workspace_id: string;
-  store_id: string;
+  index_id: string;
   filename: string;
   content_type: string;
   file_size: number;
@@ -163,7 +163,7 @@ export interface Document {
 export interface ListDocumentsInput {
   limit?: number;
   offset?: number;
-  storeId?: string;
+  indexId?: string;
   /** ILIKE filter on filename. */
   q?: string;
   /** metadata->>'source' equality filter — shorthand for the
@@ -193,7 +193,7 @@ export interface ListDocumentsResult {
 }
 
 export interface UploadDocumentInput {
-  storeId: string;
+  indexId: string;
   /** File-like payload. In the browser pass a `File`; in Node use
    * `openAsBlob(path)` or `new Blob([await readFile(path)])`. */
   file: Blob;
@@ -203,7 +203,7 @@ export interface UploadDocumentInput {
 
   // ---- provenance (round-tripped via document metadata) ----
 
-  /** Logical name; enables version-on-rewrite for (storeId, name). */
+  /** Logical name; enables version-on-rewrite for (indexId, name). */
   name?: string;
   /** Shorthand for metadata.source — which agent produced the artifact. */
   source?: string;
@@ -219,13 +219,13 @@ export interface UploadDocumentInput {
   parentId?: string;
 
   /** Optimistic concurrency. Server returns 409 when the latest
-   *  (storeId, name) version doesn't equal `ifVersion`. */
+   *  (indexId, name) version doesn't equal `ifVersion`. */
   ifVersion?: number;
 }
 
 export interface SearchInput {
   query: string;
-  storeId?: string;
+  indexId?: string;
   top_k?: number;
   min_score?: number;
   /** Response shape selector. Default "chunk" (one row per chunk).
@@ -256,7 +256,7 @@ export interface SearchResult {
  *  document with the best chunk inlined as a preview. */
 export interface DocumentSearchResult {
   document_id: string;
-  store_id: string;
+  index_id: string;
   filename: string;
   document_name: string | null;
   document_metadata: Record<string, unknown>;
@@ -271,7 +271,7 @@ export interface DocumentSearchResult {
 }
 
 export interface GetDocumentByNameInput {
-  storeId: string;
+  indexId: string;
   name: string;
   /** Pin a specific historical version; omit for the latest non-deleted one. */
   version?: number;
@@ -288,7 +288,7 @@ export interface ChatCompletionInput {
   model?: string;
   messages: ChatMessage[];
   use_rag?: boolean;
-  store_id?: string;
+  index_id?: string;
 }
 
 export interface ChatCompletionChoice {
@@ -347,7 +347,7 @@ export interface ConversationDetail {
 export interface SendMessageInput {
   content: string;
   use_rag?: boolean;
-  store_id?: string;
+  index_id?: string;
 }
 
 export interface SendMessageResult {

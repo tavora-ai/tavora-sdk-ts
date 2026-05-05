@@ -3,9 +3,9 @@ import type {
   Workspace,
   SeedWorkspaceResult,
   WorkspaceMetrics,
-  Store,
-  CreateStoreInput,
-  UpdateStoreInput,
+  Index,
+  CreateIndexInput,
+  UpdateIndexInput,
   Collection,
   CollectionDocument,
   FindCollectionInput,
@@ -182,29 +182,29 @@ export class Client {
     return this.get<WorkspaceMetrics>('/api/sdk/metrics');
   }
 
-  // ---- stores ----
+  // ---- indexes (RAG containers) ----
 
-  async listStores(): Promise<Store[]> {
-    const resp = await this.get<{ stores: Store[] }>('/api/sdk/stores');
-    return resp.stores;
+  async listIndexes(): Promise<Index[]> {
+    const resp = await this.get<{ indexes: Index[] }>('/api/sdk/indexes');
+    return resp.indexes;
   }
-  async getStore(id: string): Promise<Store> {
-    const resp = await this.get<{ store: Store }>(`/api/sdk/stores/${id}`);
-    return resp.store;
+  async getIndex(id: string): Promise<Index> {
+    const resp = await this.get<{ index: Index }>(`/api/sdk/indexes/${id}`);
+    return resp.index;
   }
-  createStore(input: CreateStoreInput): Promise<Store> {
-    return this.post<Store>('/api/sdk/stores', input);
+  createIndex(input: CreateIndexInput): Promise<Index> {
+    return this.post<Index>('/api/sdk/indexes', input);
   }
-  updateStore(id: string, input: UpdateStoreInput): Promise<Store> {
-    return this.patch<Store>(`/api/sdk/stores/${id}`, input);
+  updateIndex(id: string, input: UpdateIndexInput): Promise<Index> {
+    return this.patch<Index>(`/api/sdk/indexes/${id}`, input);
   }
-  deleteStore(id: string): Promise<void> {
-    return this.del(`/api/sdk/stores/${id}`);
+  deleteIndex(id: string): Promise<void> {
+    return this.del(`/api/sdk/indexes/${id}`);
   }
 
   // ---- collections ----
   // Mongo-style JSON document buckets the agent uses for typed working
-  // memory. Distinct from `stores` (RAG vectors) and from per-run `data`.
+  // memory. Distinct from `indexes` (RAG vectors) and from per-run `data`.
   // Filter operators: $gt, $gte, $lt, $lte, $ne, $in. Callbacks
   // (.onInsert/.onUpdate/.onRemove/.onQuery) are sandbox-only.
 
@@ -301,7 +301,7 @@ export class Client {
    * Provenance fields (`name`, `source`, `task`, `type`, `tags`,
    * `metadata`, `parentId`) round-trip through document metadata.
    * Setting `name` enables version-on-rewrite — re-uploading the same
-   * (storeId, name) bumps `version` instead of creating a duplicate.
+   * (indexId, name) bumps `version` instead of creating a duplicate.
    * Pass `ifVersion` for optimistic concurrency (409 on mismatch).
    *
    * Indexable file types (.pdf, .md, .txt, .csv, .html, .docx, .xlsx,
@@ -311,7 +311,7 @@ export class Client {
    */
   async uploadDocument(input: UploadDocumentInput): Promise<Document> {
     const form = new FormData();
-    form.set('store_id', input.storeId);
+    form.set('index_id', input.indexId);
     const filename =
       input.filename ?? ('name' in input.file && typeof input.file.name === 'string'
         ? input.file.name
@@ -331,7 +331,7 @@ export class Client {
 
     return this.request<Document>(
       'POST',
-      `/api/sdk/stores/${input.storeId}/documents`,
+      `/api/sdk/indexes/${input.indexId}/documents`,
       form,
     );
   }
@@ -354,8 +354,8 @@ export class Client {
         params.set(`metadata.${k}`, v);
       }
     }
-    const base = input.storeId
-      ? `/api/sdk/stores/${input.storeId}/documents`
+    const base = input.indexId
+      ? `/api/sdk/indexes/${input.indexId}/documents`
       : '/api/sdk/documents';
     return this.get<ListDocumentsResult>(`${base}?${params.toString()}`);
   }
@@ -365,19 +365,19 @@ export class Client {
     return this.get<Document>(`/api/sdk/documents/${id}`);
   }
 
-  /** Resolve the latest non-deleted version of (storeId, name), or a
+  /** Resolve the latest non-deleted version of (indexId, name), or a
    *  specific historical version when `version` is set. The agent-facing
    *  addressing primitive — "give me the current plan." */
   getDocumentByName(input: GetDocumentByNameInput): Promise<Document> {
-    const path = `/api/sdk/stores/${input.storeId}/documents/by-name/${encodeURIComponent(input.name)}`;
+    const path = `/api/sdk/indexes/${input.indexId}/documents/by-name/${encodeURIComponent(input.name)}`;
     return this.get<Document>(input.version !== undefined ? `${path}?version=${input.version}` : path);
   }
 
-  /** All versions of (storeId, name), newest first, including
+  /** All versions of (indexId, name), newest first, including
    *  soft-deleted ones — the artifact history. */
-  async listDocumentVersions(storeId: string, name: string): Promise<Document[]> {
+  async listDocumentVersions(indexId: string, name: string): Promise<Document[]> {
     const resp = await this.get<{ versions: Document[] }>(
-      `/api/sdk/stores/${storeId}/documents/by-name/${encodeURIComponent(name)}/versions`,
+      `/api/sdk/indexes/${indexId}/documents/by-name/${encodeURIComponent(name)}/versions`,
     );
     return resp.versions;
   }
@@ -397,8 +397,8 @@ export class Client {
   /** Chunk-shaped semantic search. Use {@link searchDocuments} for
    *  document-shaped, server-deduped results. */
   async search(input: SearchInput): Promise<SearchResult[]> {
-    const path = input.storeId
-      ? `/api/sdk/stores/${input.storeId}/search`
+    const path = input.indexId
+      ? `/api/sdk/indexes/${input.indexId}/search`
       : '/api/sdk/search';
     const resp = await this.post<{ results: SearchResult[] }>(path, {
       ...input,
@@ -412,8 +412,8 @@ export class Client {
    *  Use when the agent's question is "what artifacts are about X"
    *  rather than "what passages are about X". */
   async searchDocuments(input: SearchInput): Promise<DocumentSearchResult[]> {
-    const path = input.storeId
-      ? `/api/sdk/stores/${input.storeId}/search`
+    const path = input.indexId
+      ? `/api/sdk/indexes/${input.indexId}/search`
       : '/api/sdk/search';
     const resp = await this.post<{ results: DocumentSearchResult[] }>(path, {
       ...input,
