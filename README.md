@@ -41,7 +41,7 @@ for await (const evt of client.runAgent(session.id, 'Summarise my docs.')) {
 | Area | Methods |
 |---|---|
 | Workspace | `getWorkspace` |
-| Stores | `listStores`, `getStore`, `createStore`, `updateStore`, `deleteStore` |
+| Indexes | `listIndexes`, `getIndex`, `createIndex`, `updateIndex`, `deleteIndex` |
 | Documents | `uploadDocument`, `listDocuments`, `getDocument`, `deleteDocument`, `search` |
 | Chat | `chatCompletion`, `createConversation`, `listConversations`, `getConversation`, `deleteConversation`, `sendMessage` |
 | Agents | `getAgentSystemPrompt`, `createAgentSession`, `listAgentSessions`, `getAgentSession`, `deleteAgentSession`, `runAgent` (streaming async iterator) |
@@ -54,16 +54,16 @@ for await (const evt of client.runAgent(session.id, 'Summarise my docs.')) {
 ```ts
 import { openAsBlob } from 'node:fs';
 
-const store = await client.createStore({ name: 'Support docs' });
+const index = await client.createIndex({ name: 'Support docs' });
 const file = await openAsBlob('./faq.md');
-await client.uploadDocument({ storeId: store.id, file, filename: 'faq.md' });
+await client.uploadDocument({ indexId: index.id, file, filename: 'faq.md' });
 ```
 
 **Browser:**
 
 ```ts
 const [file] = input.files; // from <input type="file">
-await client.uploadDocument({ storeId, file });
+await client.uploadDocument({ indexId, file });
 ```
 
 ## Browser-side usage
