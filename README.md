@@ -23,7 +23,7 @@ import { Client } from '@tavora/sdk';
 
 const client = new Client('https://api.tavora.ai', 'tvr_your-api-key');
 
-const ws = await client.getWorkspace();
+const ws = await client.getProduct();
 console.log('Connected to', ws.name);
 
 const session = await client.createAgentSession({
@@ -40,7 +40,7 @@ for await (const evt of client.runAgent(session.id, 'Summarise my docs.')) {
 
 | Area | Methods |
 |---|---|
-| Workspace | `getWorkspace` |
+| Product | `getProduct` |
 | Storage | `uploadFile`, `listFiles`, `getFile`, `getFileContent`, `deleteFile`, `deleteFileHard` |
 | Indexes (RAG containers) | `listIndexes`, `getIndex`, `createIndex`, `updateIndex`, `deleteIndex` |
 | Documents (RAG-indexed) | `uploadDocument`, `getDocument`, `getDocumentByName`, `listDocuments`, `listDocumentVersions`, `deleteDocument`, `deleteDocumentHard`, `search`, `searchDocuments` |

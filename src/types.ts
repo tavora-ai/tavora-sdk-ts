@@ -1,7 +1,7 @@
 // Shared types mirroring the Go SDK structs in sdk/*.go.
 // Field names match the JSON tags on the Go side.
 
-export interface Workspace {
+export interface Product {
   id: string;
   team_id: string;
   name: string;
@@ -11,10 +11,10 @@ export interface Workspace {
   updated_at: string;
 }
 
-/** Result of POST /api/sdk/workspace/seed. Idempotent: when the
- *  workspace already had any agent, `already_seeded` is true and no
+/** Result of POST /api/sdk/product/seed. Idempotent: when the
+ *  product already had any agent, `already_seeded` is true and no
  *  mutation happens. */
-export interface SeedWorkspaceResult {
+export interface SeedProductResult {
   already_seeded: boolean;
   agent_id?: string;
   agent_name?: string;
@@ -45,7 +45,7 @@ export interface EvalMetrics {
   average_score: number;
 }
 
-export interface WorkspaceMetrics {
+export interface ProductMetrics {
   tokens: TokenMetrics;
   agents: AgentMetrics;
   evals: EvalMetrics;
@@ -53,7 +53,7 @@ export interface WorkspaceMetrics {
 
 // ---- files (Storage) ----
 //
-// Workspace-scoped raw blob storage. Distinct from `Document`
+// Product-scoped raw blob storage. Distinct from `Document`
 // (RAG-indexed view) and `Index` (RAG container) — Files is the
 // universal-bytes primitive everything else can reference.
 // Sha256-keyed dedup short-circuit on upload: re-uploading identical
@@ -61,7 +61,7 @@ export interface WorkspaceMetrics {
 
 export interface File {
   id: string;
-  workspace_id: string;
+  product_id: string;
   filename: string;
   content_type: string;
   size_bytes: number;
@@ -97,7 +97,7 @@ export interface ListFilesResult {
 }
 
 // ---- collections ----
-// Workspace-scoped JSON document store — mongo-style buckets the agent
+// Product-scoped JSON document store — mongo-style buckets the agent
 // uses for typed working memory (lists of leads, scraped rows,
 // normalized records). Distinct from `Index` (RAG vectors) and from
 // per-run `data`. Filter operators: $gt, $gte, $lt, $lte, $ne, $in.
@@ -152,7 +152,7 @@ export interface RemoveCollectionInput {
 
 export interface Index {
   id: string;
-  workspace_id: string;
+  product_id: string;
   name: string;
   description: string;
   created_at: string;
@@ -173,7 +173,7 @@ export interface UpdateIndexInput {
 
 export interface Document {
   id: string;
-  workspace_id: string;
+  product_id: string;
   index_id: string;
   filename: string;
   content_type: string;
@@ -359,7 +359,7 @@ export interface ChatCompletionResult {
 
 export interface Conversation {
   id: string;
-  workspace_id: string;
+  product_id: string;
   title: string;
   system_prompt: string;
   model: string;
@@ -405,7 +405,7 @@ export interface SendMessageResult {
 
 export interface AgentSession {
   id: string;
-  workspace_id: string;
+  product_id: string;
   title: string;
   system_prompt: string;
   model: string;
@@ -548,7 +548,7 @@ export function asInputRequest(e: AgentEvent): AgentInputRequest | null {
 
 export interface MCPServer {
   id: string;
-  workspace_id: string;
+  product_id: string;
   name: string;
   url: string;
   transport: string;
@@ -604,7 +604,7 @@ export interface TestMCPServerResult {
 
 export interface Skill {
   id: string;
-  workspace_id: string;
+  product_id: string;
   name: string;
   description: string;
   /** "prompt" | "webhook" | "module" | "mcp" */
@@ -630,7 +630,7 @@ export interface CreateSkillInput {
 
 export interface AgentConfig {
   id: string;
-  workspace_id: string;
+  product_id: string;
   name: string;
   description: string;
   created_by: string;
@@ -714,7 +714,7 @@ export interface UpsertDeploymentInput {
 
 export interface ScheduledRun {
   id: string;
-  workspace_id: string;
+  product_id: string;
   agent_session_id: string;
   name: string;
   cron_expression: string;
@@ -739,7 +739,7 @@ export interface CreateScheduledRunInput {
 
 export interface EvalCase {
   id: string;
-  workspace_id: string;
+  product_id: string;
   name: string;
   description: string;
   set_name: string;
@@ -804,7 +804,7 @@ export interface RunEvalInput {
 
 export interface EvalSuite {
   id: string;
-  workspace_id: string;
+  product_id: string;
   agent_id: string | null;
   name: string;
   description: string;
@@ -863,8 +863,8 @@ export interface ProposePromotionInput {
 
 export interface ToolPolicy {
   id: string;
-  workspace_id: string;
-  /** null = workspace-default row; non-null = per-version override */
+  product_id: string;
+  /** null = product-default row; non-null = per-version override */
   agent_version_id: string | null;
   tool_name: string;
   /** "allow" | "deny" | "approve" */
@@ -877,7 +877,7 @@ export interface ToolPolicy {
 
 export interface ApprovalRequest {
   id: string;
-  workspace_id: string;
+  product_id: string;
   session_id: string | null;
   agent_version_id: string | null;
   policy_id: string | null;
@@ -895,7 +895,7 @@ export interface ApprovalRequest {
 }
 
 export interface UpsertToolPolicyInput {
-  /** omit to target the workspace-default row */
+  /** omit to target the product-default row */
   agent_version_id?: string;
   tool_name: string;
   /** "allow" | "deny" | "approve" */
@@ -907,7 +907,7 @@ export interface UpsertToolPolicyInput {
 
 export interface PromptTemplate {
   id: string;
-  workspace_id: string;
+  product_id: string;
   name: string;
   content: string;
   variables: unknown;
@@ -964,7 +964,7 @@ export interface StudioFixSuggestion {
 
 export interface TenantAuditEntry {
   id: string;
-  workspace_id: string;
+  product_id: string;
   actor_user_id: string | null;
   actor_api_key_id: string | null;
   action: string;
