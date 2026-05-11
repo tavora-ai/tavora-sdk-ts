@@ -1,8 +1,8 @@
 import { TavoraAPIError } from './errors.js';
 import type {
-  Product,
-  SeedProductResult,
-  ProductMetrics,
+  App,
+  SeedAppResult,
+  AppMetrics,
   Index,
   CreateIndexInput,
   UpdateIndexInput,
@@ -89,7 +89,7 @@ export class Client {
    * Create a new Tavora SDK client.
    *
    * @param baseURL - Tavora API server (e.g. `https://api.tavora.ai`).
-   * @param apiKey  - Product-scoped API key (starts with `tvr_`), created in the admin UI.
+   * @param apiKey  - App-scoped API key (starts with `tvr_`), created in the admin UI.
    */
   constructor(baseURL: string, apiKey: string, opts: ClientOptions = {}) {
     this.baseURL = baseURL.replace(/\/$/, '');
@@ -161,29 +161,29 @@ export class Client {
     return this.request<void>('DELETE', path);
   }
 
-  // ---- product ----
+  // ---- app ----
 
-  /** Fetch the product bound to this client's API key. */
-  getProduct(): Promise<Product> {
-    return this.get<Product>('/api/sdk/space');
+  /** Fetch the app bound to this client's API key. */
+  getApp(): Promise<App> {
+    return this.get<App>('/api/sdk/space');
   }
 
-  /** Ensure the product has the platform-invariant default agent
+  /** Ensure the app has the platform-invariant default agent
    *  (one agent + v1.0.0 version + minimal eval suite). Idempotent:
    *  if any agent already exists, returns `already_seeded: true` with
    *  no mutation. Equivalent to what signup runs after creating a
-   *  brand-new product. */
-  seedProduct(): Promise<SeedProductResult> {
-    return this.post<SeedProductResult>('/api/sdk/product/seed');
+   *  brand-new app. */
+  seedApp(): Promise<SeedAppResult> {
+    return this.post<SeedAppResult>('/api/sdk/app/seed');
   }
 
   // ---- metrics ----
 
-  /** Aggregated metrics for the product (token usage, agent session
+  /** Aggregated metrics for the app (token usage, agent session
    *  counts, eval run aggregates). Useful for billing dashboards and
    *  health checks. */
-  getMetrics(): Promise<ProductMetrics> {
-    return this.get<ProductMetrics>('/api/sdk/metrics');
+  getMetrics(): Promise<AppMetrics> {
+    return this.get<AppMetrics>('/api/sdk/metrics');
   }
 
   // ---- files (Storage) ----
@@ -193,7 +193,7 @@ export class Client {
   // uploading identical bytes returns the existing File.
 
   /** Upload bytes. Server returns the existing File row when the same
-   *  (product, content_sha256) exists; the SDK shape is the same
+   *  (app, content_sha256) exists; the SDK shape is the same
    *  either way — caller doesn't need to distinguish. */
   async uploadFile(input: UploadFileInput): Promise<TavoraFile> {
     const form = new FormData();
@@ -828,18 +828,18 @@ export class Client {
 
   // ---- tool policies + approvals (Phase 14) ----
 
-  /** All policies for the product — product-defaults and
+  /** All policies for the app — app-defaults and
    *  per-version overrides interleaved. Caller filters by
    *  `agent_version_id == null` to see only defaults. */
   listToolPolicies(): Promise<ToolPolicy[]> {
     return this.get<ToolPolicy[]>('/api/sdk/tool-policies');
   }
-  /** Create or update a policy row keyed by `(product, version, tool)`.
+  /** Create or update a policy row keyed by `(app, version, tool)`.
    *  Last-write-wins on concurrent upserts. */
   upsertToolPolicy(input: UpsertToolPolicyInput): Promise<ToolPolicy> {
     return this.put<ToolPolicy>('/api/sdk/tool-policies', input);
   }
-  /** Remove a policy row. The tool falls back to any product-default
+  /** Remove a policy row. The tool falls back to any app-default
    *  row (when deleting a version-override) or to the code default
    *  (allow for most tools, deny for fetch). */
   deleteToolPolicy(policyID: string): Promise<void> {
@@ -968,7 +968,7 @@ export class Client {
 
   // ---- audit log (Phase 13) ----
 
-  /** Page through the product's audit log. All filter fields
+  /** Page through the app's audit log. All filter fields
    *  optional; server caps `limit` at 500. */
   listAuditLog(filter: AuditListFilter = {}): Promise<AuditListPage> {
     const q = new URLSearchParams();
