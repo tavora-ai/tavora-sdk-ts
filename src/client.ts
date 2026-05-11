@@ -6,15 +6,17 @@ import type {
   Index,
   CreateIndexInput,
   UpdateIndexInput,
-  File as TavoraFile,
-  UploadFileInput,
-  ListFilesInput,
-  ListFilesResult,
-  Collection,
-  CollectionDocument,
-  FindCollectionInput,
-  UpdateCollectionInput,
-  RemoveCollectionInput,
+  MemoryStore,
+  MemoryEntry,
+  CreateMemoryStoreInput,
+  UpdateMemoryStoreInput,
+  SecretVault,
+  RedactedSecret,
+  CreateSecretVaultInput,
+  UpdateSecretVaultInput,
+  Tenant,
+  ProvisionTenantInput,
+  UpdateTenantInput,
   Document,
   ListDocumentsInput,
   ListDocumentsResult,
@@ -186,74 +188,6 @@ export class Client {
     return this.get<AppMetrics>('/api/sdk/metrics');
   }
 
-  // ---- files (Storage) ----
-  //
-  // Raw blob storage. Distinct from documents (RAG-indexed) and
-  // indexes (RAG containers). Sha256-keyed dedup on upload — re-
-  // uploading identical bytes returns the existing File.
-
-  /** Upload bytes. Server returns the existing File row when the same
-   *  (app, content_sha256) exists; the SDK shape is the same
-   *  either way — caller doesn't need to distinguish. */
-  async uploadFile(input: UploadFileInput): Promise<TavoraFile> {
-    const form = new FormData();
-    const filename =
-      input.filename ?? ('name' in input.file && typeof input.file.name === 'string'
-        ? input.file.name
-        : 'upload.bin');
-    form.set('file', input.file, filename);
-    if (input.filename !== undefined) form.set('filename', input.filename);
-    return this.request<TavoraFile>('POST', '/api/sdk/files', form);
-  }
-
-  async listFiles(input: ListFilesInput = {}): Promise<ListFilesResult> {
-    const params = new URLSearchParams();
-    params.set('limit', String(input.limit && input.limit > 0 ? input.limit : 50));
-    params.set('offset', String(input.offset ?? 0));
-    if (input.contentType) params.set('content_type', input.contentType);
-    if (input.contentSha256) params.set('content_sha256', input.contentSha256);
-    if (input.includeDeleted) params.set('include_deleted', 'true');
-    return this.get<ListFilesResult>(`/api/sdk/files?${params.toString()}`);
-  }
-
-  /** File metadata. For raw bytes use {@link getFileContent}. */
-  getFile(id: string): Promise<TavoraFile> {
-    return this.get<TavoraFile>(`/api/sdk/files/${id}`);
-  }
-
-  /** Stream the raw bytes. Returns a `Response` so the caller controls
-   *  whether to .blob(), .arrayBuffer(), .text(), or pipe. */
-  async getFileContent(id: string): Promise<Response> {
-    const res = await this.fetchImpl(`${this.baseURL}/api/sdk/files/${id}/content`, {
-      method: 'GET',
-      headers: { 'X-API-Key': this.apiKey },
-    });
-    if (!res.ok) {
-      let msg = res.statusText;
-      let code: string | undefined;
-      try {
-        const payload = (await res.json()) as { message?: string; code?: string };
-        msg = payload.message ?? msg;
-        code = payload.code;
-      } catch {
-        // ignore non-JSON
-      }
-      throw new TavoraAPIError(res.status, msg, code);
-    }
-    return res;
-  }
-
-  /** Soft-delete (idempotent). For permanent removal use
-   *  {@link deleteFileHard} — fails if any live document references
-   *  the file (FK ON DELETE RESTRICT). */
-  deleteFile(id: string): Promise<void> {
-    return this.del(`/api/sdk/files/${id}`);
-  }
-
-  deleteFileHard(id: string): Promise<void> {
-    return this.del(`/api/sdk/files/${id}?hard=true`);
-  }
-
   // ---- indexes (RAG containers) ----
 
   async listIndexes(): Promise<Index[]> {
@@ -274,93 +208,123 @@ export class Client {
     return this.del(`/api/sdk/indexes/${id}`);
   }
 
-  // ---- collections ----
-  // Mongo-style JSON document buckets the agent uses for typed working
-  // memory. Distinct from `indexes` (RAG vectors) and from per-run `data`.
-  // Filter operators: $gt, $gte, $lt, $lte, $ne, $in. Callbacks
-  // (.onInsert/.onUpdate/.onRemove/.onQuery) are sandbox-only.
+  // ---- memory stores ----
+  //
+  // Named, app-scoped persistent key/value buckets the agent reads via
+  // `remember()` / `recall()` / `memories()` when its session is pinned
+  // to a store. Survives session end; legacy per-session `agent_memory`
+  // stays ephemeral when no pin is set.
 
-  async listCollections(): Promise<Collection[]> {
-    const resp = await this.get<{ collections: Collection[] }>(
-      '/api/sdk/collections',
+  async listMemoryStores(): Promise<MemoryStore[]> {
+    const resp = await this.get<{ memory_stores: MemoryStore[] }>('/api/sdk/memory-stores');
+    return resp.memory_stores;
+  }
+  getMemoryStore(id: string): Promise<MemoryStore> {
+    return this.get<MemoryStore>(`/api/sdk/memory-stores/${id}`);
+  }
+  /** Create a memory store. 409 if the name already exists in the app. */
+  createMemoryStore(input: CreateMemoryStoreInput): Promise<MemoryStore> {
+    return this.post<MemoryStore>('/api/sdk/memory-stores', input);
+  }
+  /** Patch metadata. PATCH semantics: omitted Metadata preserves current. */
+  updateMemoryStore(id: string, input: UpdateMemoryStoreInput): Promise<MemoryStore> {
+    return this.patch<MemoryStore>(`/api/sdk/memory-stores/${id}`, input);
+  }
+  /** Delete the store and (by FK cascade) every entry inside it. */
+  deleteMemoryStore(id: string): Promise<void> {
+    return this.del(`/api/sdk/memory-stores/${id}`);
+  }
+  async listMemoryEntries(storeId: string): Promise<MemoryEntry[]> {
+    const resp = await this.get<{ entries: MemoryEntry[] }>(`/api/sdk/memory-stores/${storeId}/entries`);
+    return resp.entries;
+  }
+  /** Upsert (key, value) — inserts when absent, overwrites when present. */
+  putMemoryEntry(storeId: string, key: string, value: string): Promise<MemoryEntry> {
+    return this.put<MemoryEntry>(
+      `/api/sdk/memory-stores/${storeId}/entries/${encodeURIComponent(key)}`,
+      { value },
     );
-    return resp.collections;
+  }
+  /** Idempotent — 204 even when the entry is already absent. */
+  deleteMemoryEntry(storeId: string, key: string): Promise<void> {
+    return this.del(`/api/sdk/memory-stores/${storeId}/entries/${encodeURIComponent(key)}`);
   }
 
-  /** Idempotently reserve a collection name. Returns the (possibly
-   *  pre-existing) collection record. */
-  async createCollection(name: string): Promise<Collection> {
-    const resp = await this.post<{ collection: Collection }>(
-      '/api/sdk/collections',
-      { name },
+  // ---- secret vaults ----
+  //
+  // Envelope-encrypted, app-scoped vaults of named secrets the agent
+  // reads via `secret(name)` in the sandbox when its session is pinned
+  // to a vault. The SDK NEVER returns plaintext — set takes a value
+  // and returns the redacted view; list returns redacted in bulk;
+  // there's no get-plaintext endpoint by design. The only way to
+  // retrieve a value is from inside an agent session.
+  //
+  // Endpoints return 503 when the server has no `TAVORA_SECRET_KEK`
+  // configured (secret vaults disabled).
+
+  async listSecretVaults(): Promise<SecretVault[]> {
+    const resp = await this.get<{ secret_vaults: SecretVault[] }>('/api/sdk/secret-vaults');
+    return resp.secret_vaults;
+  }
+  getSecretVault(id: string): Promise<SecretVault> {
+    return this.get<SecretVault>(`/api/sdk/secret-vaults/${id}`);
+  }
+  createSecretVault(input: CreateSecretVaultInput): Promise<SecretVault> {
+    return this.post<SecretVault>('/api/sdk/secret-vaults', input);
+  }
+  updateSecretVault(id: string, input: UpdateSecretVaultInput): Promise<SecretVault> {
+    return this.patch<SecretVault>(`/api/sdk/secret-vaults/${id}`, input);
+  }
+  /** Deletes the vault and (by FK cascade) every secret inside it. Irreversible. */
+  deleteSecretVault(id: string): Promise<void> {
+    return this.del(`/api/sdk/secret-vaults/${id}`);
+  }
+  async listSecrets(vaultId: string): Promise<RedactedSecret[]> {
+    const resp = await this.get<{ secrets: RedactedSecret[] }>(`/api/sdk/secret-vaults/${vaultId}/secrets`);
+    return resp.secrets;
+  }
+  /** Encrypt + store. Fresh DEK + nonce on every write. Returns the redacted view. */
+  putSecret(vaultId: string, name: string, value: string): Promise<RedactedSecret> {
+    return this.put<RedactedSecret>(
+      `/api/sdk/secret-vaults/${vaultId}/secrets/${encodeURIComponent(name)}`,
+      { value },
     );
-    return resp.collection;
+  }
+  /** Idempotent — 204 even when absent. */
+  deleteSecret(vaultId: string, name: string): Promise<void> {
+    return this.del(`/api/sdk/secret-vaults/${vaultId}/secrets/${encodeURIComponent(name)}`);
   }
 
-  /** Drop the bucket entirely (rows + metadata). Idempotent — dropping
-   *  a missing collection is not an error. */
-  dropCollection(name: string): Promise<void> {
-    return this.del(`/api/sdk/collections/${encodeURIComponent(name)}`);
-  }
+  // ---- tenant facade ----
+  //
+  // Customers pass an opaque `tenant_ref` string on session create and
+  // the platform isolates state (memory, secrets, audit, future rate
+  // limits) behind it. These endpoints exist for pre-provisioning + admin;
+  // first-touch session-create auto-provisions.
+  //
+  // The platform never models the customer's user/org schema — the ref
+  // is opaque, UTF-8, 1–256 bytes.
 
-  /** Insert one document; returns the server-assigned _id. */
-  async insertCollectionDocument(
-    name: string,
-    document: CollectionDocument,
-  ): Promise<number> {
-    const resp = await this.post<{ id: number }>(
-      `/api/sdk/collections/${encodeURIComponent(name)}/documents`,
-      { document },
-    );
-    return resp.id;
+  async listTenants(): Promise<Tenant[]> {
+    const resp = await this.get<{ tenants: Tenant[] }>('/api/sdk/tenants');
+    return resp.tenants;
   }
-
-  /** Insert a batch in order; returns assigned _ids in the same order. */
-  async insertCollectionDocuments(
-    name: string,
-    documents: CollectionDocument[],
-  ): Promise<number[]> {
-    const resp = await this.post<{ ids: number[] }>(
-      `/api/sdk/collections/${encodeURIComponent(name)}/documents`,
-      { documents },
-    );
-    return resp.ids;
+  /** Get-or-lazy-create. Returns the same refs across calls — pin is stable. */
+  getTenant(tenantRef: string): Promise<Tenant> {
+    return this.get<Tenant>(`/api/sdk/tenants/${encodeURIComponent(tenantRef)}`);
   }
-
-  /** Run a filter+opts query. Empty input returns every document. */
-  async findCollectionDocuments(
-    name: string,
-    input: FindCollectionInput = {},
-  ): Promise<CollectionDocument[]> {
-    const resp = await this.post<{ documents: CollectionDocument[] }>(
-      `/api/sdk/collections/${encodeURIComponent(name)}/find`,
-      input,
-    );
-    return resp.documents;
+  /** Explicit pre-provision. Idempotent. */
+  provisionTenant(input: ProvisionTenantInput): Promise<Tenant> {
+    return this.post<Tenant>('/api/sdk/tenants', input);
   }
-
-  /** Merge `updates` into every doc matching `filter`. Returns count touched. */
-  async updateCollectionDocuments(
-    name: string,
-    input: UpdateCollectionInput,
-  ): Promise<number> {
-    const resp = await this.post<{ updated: number }>(
-      `/api/sdk/collections/${encodeURIComponent(name)}/update`,
-      input,
-    );
-    return resp.updated;
+  /** Override pinned refs / metadata. Pointer-distinguished omit-vs-clear. */
+  updateTenant(tenantRef: string, input: UpdateTenantInput): Promise<Tenant> {
+    return this.patch<Tenant>(`/api/sdk/tenants/${encodeURIComponent(tenantRef)}`, input);
   }
-
-  /** Delete every doc matching `filter`. Returns count removed. */
-  async removeCollectionDocuments(
-    name: string,
-    input: RemoveCollectionInput,
-  ): Promise<number> {
-    const resp = await this.post<{ removed: number }>(
-      `/api/sdk/collections/${encodeURIComponent(name)}/remove`,
-      input,
-    );
-    return resp.removed;
+  /** Soft-delete. Frees the canonical tenant_ref slot so a later session-create
+   *  with the same ref lazy-creates a fresh tenant. */
+  archiveTenant(tenantRef: string): Promise<void> {
+    return this.del(`/api/sdk/tenants/${encodeURIComponent(tenantRef)}`);
   }
 
   // ---- documents ----

@@ -59,102 +59,20 @@ export interface AppMetrics {
 // Sha256-keyed dedup short-circuit on upload: re-uploading identical
 // bytes returns the existing File row instead of creating a duplicate.
 
-export interface File {
-  id: string;
-  app_id: string;
-  filename: string;
-  content_type: string;
-  size_bytes: number;
-  /** Hex-encoded sha256 of the bytes. Use as the dedup probe. */
-  content_sha256: string;
-  on_disk_path: string;
-  created_by_api_key_id: string | null;
-  created_at: string;
-  updated_at: string;
-  deleted_at: string | null;
-}
+// File + Collection types removed in the 2026-05-11 positioning rewrite.
+// Customer file storage and persistent structured records belong in the
+// customer's backend (PocketBase / Supabase / their own DB), exposed to
+// the agent via MCP. See the SDK CONTRACT for the deprecation note.
 
-export interface UploadFileInput {
-  /** File-like payload. In the browser pass a `File`; in Node use
-   *  `openAsBlob(path)` or `new Blob([await readFile(path)])`. */
-  file: Blob;
-  /** Optional filename override; required when the Blob has no `.name`. */
-  filename?: string;
-}
-
-export interface ListFilesInput {
-  limit?: number;
-  offset?: number;
-  contentType?: string;
-  contentSha256?: string;
-  includeDeleted?: boolean;
-}
-
-export interface ListFilesResult {
-  data: File[];
-  total: number;
-  has_more: boolean;
-}
-
-// ---- collections ----
-// App-scoped JSON document store — mongo-style buckets the agent
-// uses for typed working memory (lists of leads, scraped rows,
-// normalized records). Distinct from `Index` (RAG vectors) and from
-// per-run `data`. Filter operators: $gt, $gte, $lt, $lte, $ne, $in.
-// Callbacks (.onInsert/.onUpdate/.onRemove/.onQuery) are sandbox-only —
-// they're session-scoped goja hooks with no SDK equivalent.
-
-export interface Collection {
-  name: string;
-  count: number;
-}
-
-/** Operator object accepted as a filter value. Combine in one map for
- *  range queries: `{age: {$gte: 25, $lte: 35}}`. */
-export interface FilterOps {
-  $gt?: unknown;
-  $gte?: unknown;
-  $lt?: unknown;
-  $lte?: unknown;
-  $ne?: unknown;
-  $in?: unknown[];
-}
-
-/** Filter shape: per-field equality (`{role: "engineer"}`) or operator
- *  object (`{age: {$gte: 30}}`). Mix freely across fields. */
-export type CollectionFilter = Record<string, unknown | FilterOps>;
-
-/** A document body. `_id` is server-assigned and surfaced on every
- *  find/findOne result; do not set it manually. */
-export type CollectionDocument = Record<string, unknown>;
-
-export interface FindCollectionInput {
-  filter?: CollectionFilter;
-  /** Field name; prefix with `-` for descending. */
-  sort?: string;
-  limit?: number;
-  skip?: number;
-}
-
-export interface UpdateCollectionInput {
-  filter: CollectionFilter;
-  /** Top-level keys overwrite; nothing nested gets merged (mongo $set semantics). */
-  updates: CollectionDocument;
-}
-
-export interface RemoveCollectionInput {
-  /** Required — empty filter is rejected by the server. Use
-   *  `dropCollection(name)` to drop the bucket entirely. */
-  filter: CollectionFilter;
-}
-
-// ---- stores ----
+// ---- indexes (RAG containers) ----
 
 export interface Index {
   id: string;
   app_id: string;
   name: string;
   description: string;
+  /** Customer-owned arbitrary data — Tavora never interprets this. Round-trips as opaque JSON. */
+  metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -162,11 +80,101 @@ export interface Index {
 export interface CreateIndexInput {
   name: string;
   description?: string;
+  metadata?: Record<string, unknown>;
 }
 
+/** PATCH semantics: omitted metadata preserves current; pass `{}` to clear. */
 export interface UpdateIndexInput {
   name: string;
   description?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// ---- memory stores (Stage 2 composable-primitives) ----
+
+export interface MemoryStore {
+  id: string;
+  app_id: string;
+  name: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryEntry {
+  memory_store_id: string;
+  key: string;
+  value: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateMemoryStoreInput {
+  name: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateMemoryStoreInput {
+  metadata?: Record<string, unknown>;
+}
+
+// ---- secret vaults (Stage 3 composable-primitives) ----
+
+export interface SecretVault {
+  id: string;
+  app_id: string;
+  name: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Redacted view of a secret. Never contains plaintext or the encrypted
+ *  blob — only metadata safe to put on the wire. */
+export interface RedactedSecret {
+  vault_id: string;
+  name: string;
+  kek_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateSecretVaultInput {
+  name: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateSecretVaultInput {
+  metadata?: Record<string, unknown>;
+}
+
+// ---- tenant facade (Stage 5 composable-primitives) ----
+
+export interface Tenant {
+  tenant_ref: string;
+  index_ids?: string[];
+  memory_store_id?: string | null;
+  secret_vault_id?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProvisionTenantInput {
+  tenant_ref: string;
+  /** Skip auto-creating a per-tenant memory store. Default: false. */
+  no_memory_store?: boolean;
+  /** Skip auto-creating a per-tenant secret vault. Default: false. */
+  no_secret_vault?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+/** PATCH input — `null` clears the field, `undefined` (omitted) preserves it. */
+export interface UpdateTenantInput {
+  index_ids?: string[] | null;
+  memory_store_id?: string | null;
+  secret_vault_id?: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 // ---- documents ----
@@ -412,6 +420,19 @@ export interface AgentSession {
   tools_config: unknown;
   metadata: unknown;
   status: string;
+  /** Pinned indexes for the agent's `search()` calls (Stage 4 of the
+   *  composable-primitives plan). Empty/undefined = legacy "all indexes
+   *  in this app". */
+  index_ids?: string[];
+  /** Pinned memory store the agent's `remember()`/`recall()`/`memories()`
+   *  hit (Stage 2). Undefined = legacy per-session `agent_memory`. */
+  memory_store_id?: string | null;
+  /** Pinned secret vault the agent's `secret(name)` resolves against
+   *  (Stage 3). Undefined = `secret()` panics with "no vault pinned". */
+  secret_vault_id?: string | null;
+  /** Tenant facade reference (Stage 5). Opaque UTF-8 string the customer
+   *  passes; the platform isolates state behind it. */
+  tenant_ref?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -444,6 +465,18 @@ export interface CreateAgentSessionInput {
   model?: string;
   tools?: string[];
   metadata?: unknown;
+
+  /** Primitive pinning (composable-primitives plan Stages 4 + 5):
+   *  • index_ids / memory_store_id / secret_vault_id — explicit refs;
+   *    the sandbox scopes each tool to the pinned set.
+   *  • tenant_ref — the one-line facade. Pass an opaque per-end-customer
+   *    string; the platform lazy-creates per-tenant memory + secret
+   *    behind the scenes and records the pin for stable resolution
+   *    across sessions. Explicit refs override the facade per-field. */
+  index_ids?: string[];
+  memory_store_id?: string;
+  secret_vault_id?: string;
+  tenant_ref?: string;
 }
 
 export interface RunSummary {
