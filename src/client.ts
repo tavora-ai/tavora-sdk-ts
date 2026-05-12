@@ -44,24 +44,27 @@ import type {
   CreateSkillInput,
   AgentConfig,
   AgentVersion,
-  AgentDeployment,
   CreateAgentConfigInput,
   UpdateAgentConfigInput,
   CreateAgentVersionInput,
-  UpsertDeploymentInput,
+  DraftConfig,
+  PublishResult,
+  UpdateAgentSettingsInput,
+  EvalRunResult,
+  EvalTarget,
   ScheduledRun,
+  UpdateScheduledRunInput,
   CreateScheduledRunInput,
   EvalCase,
   CreateEvalCaseInput,
+  UpdateEvalCaseInput,
   EvalRun,
   EvalRunDetail,
   RunEvalInput,
   EvalSuite,
   EvalSuiteVersion,
-  AgentPromotion,
   CreateSuiteInput,
   NewSuiteVersionInput,
-  ProposePromotionInput,
   ToolPolicy,
   ApprovalRequest,
   UpsertToolPolicyInput,
@@ -159,8 +162,8 @@ export class Client {
   private put<T>(path: string, body?: unknown): Promise<T> {
     return this.request<T>('PUT', path, body);
   }
-  private del(path: string): Promise<void> {
-    return this.request<void>('DELETE', path);
+  private del<T = void>(path: string): Promise<T> {
+    return this.request<T>('DELETE', path);
   }
 
   // ---- app ----
@@ -702,11 +705,55 @@ export class Client {
     return this.get<AgentVersion>(`/api/sdk/agent-configs/${agentID}/versions/${versionID}`);
   }
 
-  upsertAgentDeployment(agentID: string, input: UpsertDeploymentInput): Promise<AgentDeployment> {
-    return this.post<AgentDeployment>(`/api/sdk/agent-configs/${agentID}/deployments`, input);
+  // ---- draft + publish (PR3 of agent simplification) ----
+
+  /** Stage a complete proposed next-state in the agent's draft_config.
+   *  The runtime is unaffected; the live config keeps serving sessions
+   *  until publish. Body is the entire DraftConfig — partial merges
+   *  are not supported. */
+  updateAgentDraft(agentID: string, draft: DraftConfig): Promise<AgentConfig> {
+    return this.patch<AgentConfig>(`/api/sdk/agent-configs/${agentID}/draft`, draft);
   }
-  listAgentDeployments(agentID: string): Promise<AgentDeployment[]> {
-    return this.get<AgentDeployment[]>(`/api/sdk/agent-configs/${agentID}/deployments`);
+  /** Clear the staged draft. Idempotent — discarding when no draft
+   *  exists is a no-op (still audited). */
+  discardAgentDraft(agentID: string): Promise<AgentConfig> {
+    return this.del<AgentConfig>(`/api/sdk/agent-configs/${agentID}/draft`);
+  }
+  /** Promote the staged draft to live: appends an immutable
+   *  agent_versions snapshot, mirrors the new live columns, clears
+   *  draft_config, audits — all in one transaction. 409 when no
+   *  draft is staged. */
+  publishAgent(agentID: string): Promise<PublishResult> {
+    return this.post<PublishResult>(`/api/sdk/agent-configs/${agentID}/publish`);
+  }
+  /** Publish a named historical version as the new live config. Same
+   *  audit/version-append semantics as publishAgent — a revert is a
+   *  publish whose source is an existing history row. */
+  revertAgent(agentID: string, versionID: string): Promise<PublishResult> {
+    return this.post<PublishResult>(`/api/sdk/agent-configs/${agentID}/revert`, {
+      version_id: versionID,
+    });
+  }
+
+  // ---- settings + advisory eval (PR5 of agent simplification) ----
+
+  /** Patch per-agent operator settings. Pass `eval_suite_id: ""` to
+   *  clear the pin; omit a field to leave it unchanged. */
+  updateAgentSettings(agentID: string, input: UpdateAgentSettingsInput): Promise<AgentConfig> {
+    return this.patch<AgentConfig>(`/api/sdk/agent-configs/${agentID}/settings`, input);
+  }
+  /** Trigger an advisory async eval against the agent's pinned suite.
+   *  target="draft" uses the staged persona instead of the published
+   *  one; pass undefined for the default (live). */
+  runAgentEval(agentID: string, target?: EvalTarget): Promise<EvalRunResult> {
+    const qs = target ? `?target=${encodeURIComponent(target)}` : '';
+    return this.post<EvalRunResult>(`/api/sdk/agent-configs/${agentID}/eval-runs${qs}`);
+  }
+  /** Most-recent N eval runs for the agent's pinned suite. Default 5
+   *  server-side; max 50. */
+  listAgentEvalRuns(agentID: string, limit?: number): Promise<EvalRun[]> {
+    const qs = limit && limit > 0 ? `?limit=${limit}` : '';
+    return this.get<EvalRun[]>(`/api/sdk/agent-configs/${agentID}/eval-runs${qs}`);
   }
 
   // ---- scheduled runs ----
@@ -721,6 +768,12 @@ export class Client {
   createScheduledRun(input: CreateScheduledRunInput): Promise<ScheduledRun> {
     return this.post<ScheduledRun>('/api/sdk/scheduled-runs', input);
   }
+  /** Edit name / cron / message / enabled on an existing scheduled run.
+   *  Next-run timestamp is recomputed only when the cron expression
+   *  changes; otherwise the schedule keeps its existing trigger. */
+  updateScheduledRun(id: string, input: UpdateScheduledRunInput): Promise<ScheduledRun> {
+    return this.patch<ScheduledRun>(`/api/sdk/scheduled-runs/${id}`, input);
+  }
   deleteScheduledRun(id: string): Promise<void> {
     return this.del(`/api/sdk/scheduled-runs/${id}`);
   }
@@ -733,6 +786,12 @@ export class Client {
   async listEvalCases(): Promise<EvalCase[]> {
     const resp = await this.get<{ cases: EvalCase[] }>('/api/sdk/evals');
     return resp.cases;
+  }
+  /** Edit prompt / criteria / config / threshold on an existing eval
+   *  case. The case keeps its identity; suite-version memberships that
+   *  reference it surface the updated content on the next run. */
+  updateEvalCase(id: string, input: UpdateEvalCaseInput): Promise<EvalCase> {
+    return this.patch<EvalCase>(`/api/sdk/evals/${id}`, input);
   }
   deleteEvalCase(id: string): Promise<void> {
     return this.del(`/api/sdk/evals/${id}`);
@@ -748,7 +807,7 @@ export class Client {
     return this.get<EvalRunDetail>(`/api/sdk/eval-runs/${id}`);
   }
 
-  // ---- eval suites + promotions (Phase 12) ----
+  // ---- eval suites ----
 
   createSuite(input: CreateSuiteInput): Promise<EvalSuite> {
     return this.post<EvalSuite>('/api/sdk/eval-suites', input);
@@ -767,27 +826,6 @@ export class Client {
    *  membership — the common bump-version path. */
   newSuiteVersion(suiteID: string, input: NewSuiteVersionInput = {}): Promise<EvalSuiteVersion> {
     return this.post<EvalSuiteVersion>(`/api/sdk/eval-suites/${suiteID}/versions`, input);
-  }
-
-  /** Propose pinning an agent version at a target. The returned
-   *  promotion starts in `pending_eval`; the server-side eval runner
-   *  drives it to `pending_approval` (or `failed_eval`) once the
-   *  attached suite finishes. */
-  proposePromotion(input: ProposePromotionInput): Promise<AgentPromotion> {
-    return this.post<AgentPromotion>('/api/sdk/promotions', input);
-  }
-  approvePromotion(promotionID: string): Promise<AgentPromotion> {
-    return this.post<AgentPromotion>(`/api/sdk/promotions/${promotionID}/approve`);
-  }
-  /** Reject a pending promotion. Reason must be non-empty. */
-  rejectPromotion(promotionID: string, reason: string): Promise<AgentPromotion> {
-    return this.post<AgentPromotion>(`/api/sdk/promotions/${promotionID}/reject`, { reason });
-  }
-  getPromotion(promotionID: string): Promise<AgentPromotion> {
-    return this.get<AgentPromotion>(`/api/sdk/promotions/${promotionID}`);
-  }
-  listPendingPromotions(): Promise<AgentPromotion[]> {
-    return this.get<AgentPromotion[]>('/api/sdk/promotions/pending');
   }
 
   // ---- tool policies + approvals (Phase 14) ----

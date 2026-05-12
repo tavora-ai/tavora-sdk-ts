@@ -667,9 +667,73 @@ export interface AgentConfig {
   name: string;
   description: string;
   created_by: string;
+
+  // Live config — the runtime reads these for new sessions. Mirrored
+  // onto agent_versions on each publish.
+  persona_md: string;
+  /** JSON array of SkillBinding. Server returns parsed; older callers
+   *  may have stored as string. */
+  skills_json: unknown;
+  /** JSON array of store IDs. Same dual-shape caveat. */
+  stores_json: unknown;
+  provider: string;
+  model: string;
+  enabled_capabilities: string[] | null;
+
+  // Per-agent operator settings (PR5 of agent simplification).
+  eval_suite_id: string | null;
+  run_eval_on_publish: boolean;
+
+  // Draft slot — non-null when unpublished edits are staged. The
+  // runtime is unaffected by the draft.
+  draft_config: DraftConfig | null;
+
   active_version_id: string | null;
+  published_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** DraftConfig is the staged next-state of an agent. The frontend
+ *  always sends the complete intended state — partial-merge isn't
+ *  supported, so callers should construct this fully (typically from
+ *  the agent's current live columns). */
+export interface DraftConfig {
+  persona_md: string;
+  skills: SkillBinding[];
+  stores: string[];
+  provider: string;
+  model: string;
+  enabled_capabilities?: string[];
+  eval_suite_id?: string;
+  eval_suite_version?: string;
+}
+
+/** PublishResult is what publishAgent and revertAgent return — the
+ *  updated agent row plus the new history snapshot appended on the
+ *  same transaction. */
+export interface PublishResult {
+  agent: AgentConfig;
+  version: AgentVersion;
+}
+
+/** UpdateAgentSettingsInput patches per-agent operator settings.
+ *  Pass `eval_suite_id: ""` to clear the pin; omit a field to leave
+ *  it unchanged. */
+export interface UpdateAgentSettingsInput {
+  eval_suite_id?: string;
+  run_eval_on_publish?: boolean;
+}
+
+/** EvalTarget selects which persona an advisory eval uses for its
+ *  sessions. "live" reads the published persona; "draft" reads the
+ *  staged draft and 409s when nothing is staged. */
+export type EvalTarget = 'live' | 'draft';
+
+/** EvalRunResult wraps the row created by runAgentEval. Wrapped so
+ *  future fields can land without breaking callers. */
+export interface EvalRunResult {
+  run: EvalRun;
 }
 
 /** SkillBinding pins a skill at a specific version inside an AgentVersion. */
@@ -698,18 +762,6 @@ export interface AgentVersion {
   created_at: string;
 }
 
-export interface AgentDeployment {
-  id: string;
-  agent_id: string;
-  version_id: string;
-  /** "api" | "channel_binding" | "none" */
-  target_type: string;
-  target_ref: string;
-  status: string;
-  deployed_by: string;
-  deployed_at: string;
-}
-
 export interface CreateAgentConfigInput {
   name: string;
   description?: string;
@@ -736,13 +788,6 @@ export interface CreateAgentVersionInput {
   eval_suite_version?: string;
 }
 
-export interface UpsertDeploymentInput {
-  version_id: string;
-  /** defaults to "api" */
-  target_type?: string;
-  target_ref?: string;
-}
-
 // ---- scheduled runs ----
 
 export interface ScheduledRun {
@@ -766,6 +811,16 @@ export interface CreateScheduledRunInput {
   name?: string;
   cron_expression: string;
   message: string;
+}
+
+/** Patch fields on an existing scheduled run. Every field is optional;
+ *  omitted fields are left alone. cron_expression changes recompute
+ *  the next-run trigger; other fields don't disturb the schedule. */
+export interface UpdateScheduledRunInput {
+  name?: string;
+  cron_expression?: string;
+  message?: string;
+  enabled?: boolean;
 }
 
 // ---- evals ----
@@ -798,6 +853,12 @@ export interface CreateEvalCaseInput {
   tools?: string[];
   pass_threshold?: number;
 }
+
+/** Patch fields on an existing eval case. Same shape as create — every
+ *  field is optional; omitted fields are left alone. Editing a case
+ *  mid-eval-cycle changes what "passing" means for any suite-version
+ *  that references it on subsequent runs. */
+export type UpdateEvalCaseInput = Partial<CreateEvalCaseInput>;
 
 export interface EvalRun {
   id: string;
@@ -854,22 +915,6 @@ export interface EvalSuiteVersion {
   created_at: string;
 }
 
-export interface AgentPromotion {
-  id: string;
-  version_id: string;
-  target_type: string;
-  target_ref: string;
-  eval_run_id: string | null;
-  /** pending_eval | pending_approval | approved | rejected | deployed | failed_eval */
-  status: string;
-  approver_user_id: string | null;
-  decided_at: string | null;
-  reason: string;
-  proposed_by: string;
-  proposed_at: string;
-  updated_at: string;
-}
-
 export interface CreateSuiteInput {
   name: string;
   description?: string;
@@ -885,12 +930,6 @@ export interface NewSuiteVersionInput {
   case_ids?: string[];
 }
 
-export interface ProposePromotionInput {
-  version_id: string;
-  /** defaults to "api" */
-  target_type?: string;
-  target_ref?: string;
-}
 
 // ---- tool policies + approvals (Phase 14) ----
 
