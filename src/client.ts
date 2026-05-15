@@ -6,17 +6,10 @@ import type {
   Index,
   CreateIndexInput,
   UpdateIndexInput,
-  MemoryStore,
-  MemoryEntry,
-  CreateMemoryStoreInput,
-  UpdateMemoryStoreInput,
   SecretVault,
   RedactedSecret,
   CreateSecretVaultInput,
   UpdateSecretVaultInput,
-  Tenant,
-  ProvisionTenantInput,
-  UpdateTenantInput,
   Document,
   ListDocumentsInput,
   ListDocumentsResult,
@@ -211,56 +204,17 @@ export class Client {
     return this.del(`/api/sdk/indexes/${id}`);
   }
 
-  // ---- memory stores ----
-  //
-  // Named, app-scoped persistent key/value buckets the agent reads via
-  // `remember()` / `recall()` / `memories()` when its session is pinned
-  // to a store. Survives session end; legacy per-session `agent_memory`
-  // stays ephemeral when no pin is set.
-
-  async listMemoryStores(): Promise<MemoryStore[]> {
-    const resp = await this.get<{ memory_stores: MemoryStore[] }>('/api/sdk/memory-stores');
-    return resp.memory_stores;
-  }
-  getMemoryStore(id: string): Promise<MemoryStore> {
-    return this.get<MemoryStore>(`/api/sdk/memory-stores/${id}`);
-  }
-  /** Create a memory store. 409 if the name already exists in the app. */
-  createMemoryStore(input: CreateMemoryStoreInput): Promise<MemoryStore> {
-    return this.post<MemoryStore>('/api/sdk/memory-stores', input);
-  }
-  /** Patch metadata. PATCH semantics: omitted Metadata preserves current. */
-  updateMemoryStore(id: string, input: UpdateMemoryStoreInput): Promise<MemoryStore> {
-    return this.patch<MemoryStore>(`/api/sdk/memory-stores/${id}`, input);
-  }
-  /** Delete the store and (by FK cascade) every entry inside it. */
-  deleteMemoryStore(id: string): Promise<void> {
-    return this.del(`/api/sdk/memory-stores/${id}`);
-  }
-  async listMemoryEntries(storeId: string): Promise<MemoryEntry[]> {
-    const resp = await this.get<{ entries: MemoryEntry[] }>(`/api/sdk/memory-stores/${storeId}/entries`);
-    return resp.entries;
-  }
-  /** Upsert (key, value) — inserts when absent, overwrites when present. */
-  putMemoryEntry(storeId: string, key: string, value: string): Promise<MemoryEntry> {
-    return this.put<MemoryEntry>(
-      `/api/sdk/memory-stores/${storeId}/entries/${encodeURIComponent(key)}`,
-      { value },
-    );
-  }
-  /** Idempotent — 204 even when the entry is already absent. */
-  deleteMemoryEntry(storeId: string, key: string): Promise<void> {
-    return this.del(`/api/sdk/memory-stores/${storeId}/entries/${encodeURIComponent(key)}`);
-  }
-
   // ---- secret vaults ----
   //
-  // Envelope-encrypted, app-scoped vaults of named secrets the agent
-  // reads via `secret(name)` in the sandbox when its session is pinned
-  // to a vault. The SDK NEVER returns plaintext — set takes a value
-  // and returns the redacted view; list returns redacted in bulk;
-  // there's no get-plaintext endpoint by design. The only way to
-  // retrieve a value is from inside an agent session.
+  // Envelope-encrypted, app-scoped vaults of named credentials. Each
+  // app designates one vault (PUT /api/sdk/app/vault); tools read it
+  // internally — the LLM resolver pulls provider keys, the Brave pack
+  // pulls brave_api_key. The agent's JS sandbox cannot read secrets
+  // directly; credentials are tool-internal.
+  //
+  // The SDK NEVER returns plaintext — set takes a value and returns
+  // the redacted view (name + kek_id + timestamps); list returns
+  // redacted in bulk; there's no get-plaintext endpoint by design.
   //
   // Endpoints return 503 when the server has no `TAVORA_SECRET_KEK`
   // configured (secret vaults disabled).
@@ -296,38 +250,6 @@ export class Client {
   /** Idempotent — 204 even when absent. */
   deleteSecret(vaultId: string, name: string): Promise<void> {
     return this.del(`/api/sdk/secret-vaults/${vaultId}/secrets/${encodeURIComponent(name)}`);
-  }
-
-  // ---- tenant facade ----
-  //
-  // Customers pass an opaque `tenant_ref` string on session create and
-  // the platform isolates state (memory, secrets, audit, future rate
-  // limits) behind it. These endpoints exist for pre-provisioning + admin;
-  // first-touch session-create auto-provisions.
-  //
-  // The platform never models the customer's user/org schema — the ref
-  // is opaque, UTF-8, 1–256 bytes.
-
-  async listTenants(): Promise<Tenant[]> {
-    const resp = await this.get<{ tenants: Tenant[] }>('/api/sdk/tenants');
-    return resp.tenants;
-  }
-  /** Get-or-lazy-create. Returns the same refs across calls — pin is stable. */
-  getTenant(tenantRef: string): Promise<Tenant> {
-    return this.get<Tenant>(`/api/sdk/tenants/${encodeURIComponent(tenantRef)}`);
-  }
-  /** Explicit pre-provision. Idempotent. */
-  provisionTenant(input: ProvisionTenantInput): Promise<Tenant> {
-    return this.post<Tenant>('/api/sdk/tenants', input);
-  }
-  /** Override pinned refs / metadata. Pointer-distinguished omit-vs-clear. */
-  updateTenant(tenantRef: string, input: UpdateTenantInput): Promise<Tenant> {
-    return this.patch<Tenant>(`/api/sdk/tenants/${encodeURIComponent(tenantRef)}`, input);
-  }
-  /** Soft-delete. Frees the canonical tenant_ref slot so a later session-create
-   *  with the same ref lazy-creates a fresh tenant. */
-  archiveTenant(tenantRef: string): Promise<void> {
-    return this.del(`/api/sdk/tenants/${encodeURIComponent(tenantRef)}`);
   }
 
   // ---- documents ----

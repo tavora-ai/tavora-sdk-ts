@@ -1,6 +1,6 @@
 {
   "name": "@tavora/sdk",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Official TypeScript SDK for the Tavora agentic intelligence platform.",
   "license": "MIT",
   "author": "Tavora AI",

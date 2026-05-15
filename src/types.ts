@@ -90,35 +90,7 @@ export interface UpdateIndexInput {
   metadata?: Record<string, unknown>;
 }
 
-// ---- memory stores (Stage 2 composable-primitives) ----
-
-export interface MemoryStore {
-  id: string;
-  app_id: string;
-  name: string;
-  metadata: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface MemoryEntry {
-  memory_store_id: string;
-  key: string;
-  value: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CreateMemoryStoreInput {
-  name: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface UpdateMemoryStoreInput {
-  metadata?: Record<string, unknown>;
-}
-
-// ---- secret vaults (Stage 3 composable-primitives) ----
+// ---- secret vaults ----
 
 export interface SecretVault {
   id: string;
@@ -145,35 +117,6 @@ export interface CreateSecretVaultInput {
 }
 
 export interface UpdateSecretVaultInput {
-  metadata?: Record<string, unknown>;
-}
-
-// ---- tenant facade (Stage 5 composable-primitives) ----
-
-export interface Tenant {
-  tenant_ref: string;
-  index_ids?: string[];
-  memory_store_id?: string | null;
-  secret_vault_id?: string | null;
-  metadata?: Record<string, unknown>;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface ProvisionTenantInput {
-  tenant_ref: string;
-  /** Skip auto-creating a per-tenant memory store. Default: false. */
-  no_memory_store?: boolean;
-  /** Skip auto-creating a per-tenant secret vault. Default: false. */
-  no_secret_vault?: boolean;
-  metadata?: Record<string, unknown>;
-}
-
-/** PATCH input — `null` clears the field, `undefined` (omitted) preserves it. */
-export interface UpdateTenantInput {
-  index_ids?: string[] | null;
-  memory_store_id?: string | null;
-  secret_vault_id?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -420,19 +363,9 @@ export interface AgentSession {
   tools_config: unknown;
   metadata: unknown;
   status: string;
-  /** Pinned indexes for the agent's `search()` calls (Stage 4 of the
-   *  composable-primitives plan). Empty/undefined = legacy "all indexes
-   *  in this app". */
+  /** Pinned indexes for the agent's `search()` calls. Empty/undefined
+   *  = "all indexes in this app". */
   index_ids?: string[];
-  /** Pinned memory store the agent's `remember()`/`recall()`/`memories()`
-   *  hit (Stage 2). Undefined = legacy per-session `agent_memory`. */
-  memory_store_id?: string | null;
-  /** Pinned secret vault the agent's `secret(name)` resolves against
-   *  (Stage 3). Undefined = `secret()` panics with "no vault pinned". */
-  secret_vault_id?: string | null;
-  /** Tenant facade reference (Stage 5). Opaque UTF-8 string the customer
-   *  passes; the platform isolates state behind it. */
-  tenant_ref?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -466,17 +399,10 @@ export interface CreateAgentSessionInput {
   tools?: string[];
   metadata?: unknown;
 
-  /** Primitive pinning (composable-primitives plan Stages 4 + 5):
-   *  • index_ids / memory_store_id / secret_vault_id — explicit refs;
-   *    the sandbox scopes each tool to the pinned set.
-   *  • tenant_ref — the one-line facade. Pass an opaque per-end-customer
-   *    string; the platform lazy-creates per-tenant memory + secret
-   *    behind the scenes and records the pin for stable resolution
-   *    across sessions. Explicit refs override the facade per-field. */
+  /** Restrict the sandbox's `search()` to a subset of indexes. Each id
+   *  must belong to the caller's app. Omitted = "all indexes in this
+   *  app"; explicit empty array = sandbox can't search anything. */
   index_ids?: string[];
-  memory_store_id?: string;
-  secret_vault_id?: string;
-  tenant_ref?: string;
 }
 
 export interface RunSummary {
@@ -1008,7 +934,6 @@ export interface StudioTrace {
   steps: unknown[];
   system_prompt: string;
   tools: string[];
-  memory: Record<string, string>;
 }
 
 export interface StudioReplayConfig {
