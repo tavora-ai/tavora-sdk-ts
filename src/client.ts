@@ -163,7 +163,7 @@ export class Client {
 
   /** Fetch the app bound to this client's API key. */
   getApp(): Promise<App> {
-    return this.get<App>('/api/sdk/space');
+    return this.get<App>('/api/sdk/app');
   }
 
   /** Ensure the app has the platform-invariant default agent
