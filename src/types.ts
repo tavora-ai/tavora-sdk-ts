@@ -399,6 +399,15 @@ export interface CreateAgentSessionInput {
   tools?: string[];
   metadata?: unknown;
 
+  /** `agent_id` + `target` drive the "run against staged draft" path.
+   *  Set `target: "draft"` with `agent_id` = the server agent UUID
+   *  to pick up persona+model+skills from `agents.draft_config`
+   *  (populated by the browser editor or by `tavora dev`). Target
+   *  is "live" by default; an explicit value other than "live" or
+   *  "draft" is rejected. */
+  agent_id?: string;
+  target?: 'live' | 'draft';
+
   /** Restrict the sandbox's `search()` to a subset of indexes. Each id
    *  must belong to the caller's app. Omitted = "all indexes in this
    *  app"; explicit empty array = sandbox can't search anything. */
@@ -618,6 +627,15 @@ export interface AgentConfig {
   published_at: string | null;
   created_at: string;
   updated_at: string;
+
+  /** Code-first markers, non-null when the agent is managed by
+   *  `tavora dev` from a local tavora/ folder. `code_first_project`
+   *  is the project name from tavora.jsonc; `code_first_local_id` is
+   *  the `id` field in agent.jsonc. SDK callers use these to look up
+   *  an agent UUID by local id without source-syncing first
+   *  (`listAgentConfigs` + filter). */
+  code_first_project?: string | null;
+  code_first_local_id?: string | null;
 }
 
 /** DraftConfig is the staged next-state of an agent. The frontend
@@ -693,25 +711,121 @@ export interface CreateAgentConfigInput {
   description?: string;
 }
 
-export interface UpdateAgentConfigInput {
-  name: string;
-  description?: string;
+// UpdateAgentConfigInput + CreateAgentVersionInput were removed when
+// the corresponding REST endpoints went away. Rename via
+// `sourceRename`; promote via `publishAgent` (UI path) or
+// `sourceDeploy` (CLI path) — both append a kind='published' row
+// through the same internal path.
+
+// ---- code-first source-* (matches tavora-go's /api/sdk/source-*) ----
+
+/** A single file in a SourceSyncManifest — path + sha256 content hash
+ *  + size + base64-or-raw bytes. The server records the hash for
+ *  future content-addressed dedupe; today it always reads `content`. */
+export interface SourceFile {
+  path: string;
+  hash: string;
+  size: number;
+  /** UTF-8 string for text files (.jsonc, .md, .js, .json) or
+   *  base64-encoded bytes for anything else. */
+  content?: string;
 }
 
-/** When `from_version_id` is set the server performs copy-on-write from
- *  that version (non-empty fields here override; zero fields inherit).
- *  Otherwise a stand-alone version is created and `model` is required. */
-export interface CreateAgentVersionInput {
-  from_version_id?: string;
-  /** auto-bumps if empty */
-  semver?: string;
-  persona_md?: string;
-  skills?: SkillBinding[];
-  stores?: string[];
-  provider?: string;
-  model?: string;
-  eval_suite_id?: string;
-  eval_suite_version?: string;
+/** Per-agent slice of the manifest. `source_hash` is the hash of every
+ *  (path, content) pair under this agent's folder in sorted-path
+ *  order — stable across operating systems. */
+export interface SourceAgent {
+  id: string;
+  sourceHash: string;
+  files: SourceFile[];
+}
+
+/** Payload `tavora dev` (or any SourceSync caller) sends on every
+ *  debounced change. The server persists a dev draft from it. */
+export interface SourceSyncManifest {
+  project: string;
+  environment?: string;
+  sourceHash: string;
+  agents: SourceAgent[];
+  generatedAt: string;
+}
+
+/** AI-friendly issue shape. Mirrors the CLI's local validator output:
+ *  file + line + code + message + repair hint. `severity` is "fatal"
+ *  or "warn" — fatals block sync. */
+export interface SourceValidationIssue {
+  file?: string;
+  line?: number;
+  column?: number;
+  code: string;
+  message: string;
+  hint?: string;
+  severity: 'fatal' | 'warn';
+}
+
+export interface SourceSyncAgentResult {
+  localId: string;
+  agentId: string;
+  draftId: string;
+  sourceHash: string;
+}
+
+export interface SourceSyncResult {
+  draftHash: string;
+  agents: SourceSyncAgentResult[];
+  syncedAt: string;
+  serverIssues?: SourceValidationIssue[];
+}
+
+export interface SourceDeployInput {
+  project: string;
+  environment?: string;
+  /** Limit the deploy to a single agent. Empty deploys all agents
+   *  for this project. */
+  localAgentId?: string;
+  /** Tri-state override of `agent.jsonc → deploy.runEvals`. Leave
+   *  undefined to honor the file's setting. */
+  runEvals?: boolean;
+}
+
+export interface DeployedAgentInfo {
+  localId: string;
+  agentId: string;
+  versionId: string;
+  semver: string;
+}
+
+export interface SourceDeployResult {
+  version: string;
+  agents: DeployedAgentInfo[];
+  deployedAt: string;
+  serverIssues?: SourceValidationIssue[];
+}
+
+export interface SourceRenameInput {
+  project: string;
+  oldLocalId: string;
+  newLocalId: string;
+}
+
+export interface SourceRenameResult {
+  agentId: string;
+  oldLocalId: string;
+  newLocalId: string;
+}
+
+export interface SourceDeleteInput {
+  project: string;
+  localId: string;
+  /** Must be true; the server returns "force_required" otherwise. The
+   *  CLI surfaces a confirmation prompt before setting this. */
+  force: boolean;
+}
+
+export interface SourceDeleteResult {
+  agentId: string;
+  localId: string;
+  deleted: boolean;
 }
 
 // ---- scheduled runs ----

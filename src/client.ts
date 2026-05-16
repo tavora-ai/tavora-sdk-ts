@@ -38,10 +38,17 @@ import type {
   AgentConfig,
   AgentVersion,
   CreateAgentConfigInput,
-  UpdateAgentConfigInput,
-  CreateAgentVersionInput,
   DraftConfig,
   PublishResult,
+  SourceSyncManifest,
+  SourceSyncResult,
+  SourceValidationIssue,
+  SourceDeployInput,
+  SourceDeployResult,
+  SourceRenameInput,
+  SourceRenameResult,
+  SourceDeleteInput,
+  SourceDeleteResult,
   UpdateAgentSettingsInput,
   EvalRunResult,
   EvalTarget,
@@ -603,23 +610,15 @@ export class Client {
   getAgentConfig(agentID: string): Promise<AgentConfig> {
     return this.get<AgentConfig>(`/api/sdk/agent-configs/${agentID}`);
   }
-  updateAgentConfig(agentID: string, input: UpdateAgentConfigInput): Promise<AgentConfig> {
-    return this.patch<AgentConfig>(`/api/sdk/agent-configs/${agentID}`, input);
-  }
   deleteAgentConfig(agentID: string): Promise<void> {
     return this.del(`/api/sdk/agent-configs/${agentID}`);
   }
-  /** Pin an active version on the AgentConfig. Future phases will guard
-   *  this behind eval-gated promotion. */
-  setActiveAgentVersion(agentID: string, versionID: string): Promise<AgentConfig> {
-    return this.put<AgentConfig>(`/api/sdk/agent-configs/${agentID}/active-version`, {
-      version_id: versionID,
-    });
-  }
 
-  createAgentVersion(agentID: string, input: CreateAgentVersionInput): Promise<AgentVersion> {
-    return this.post<AgentVersion>(`/api/sdk/agent-configs/${agentID}/versions`, input);
-  }
+  // updateAgentConfig (rename/describe via REST), setActiveAgentVersion,
+  // and createAgentVersion (direct version creation) were removed when
+  // code-first took over. For renames use sourceRename; for promotion
+  // use publishAgent (UI path) or sourceDeploy (CLI path).
+
   listAgentVersions(agentID: string): Promise<AgentVersion[]> {
     return this.get<AgentVersion[]>(`/api/sdk/agent-configs/${agentID}/versions`);
   }
@@ -676,6 +675,54 @@ export class Client {
   listAgentEvalRuns(agentID: string, limit?: number): Promise<EvalRun[]> {
     const qs = limit && limit > 0 ? `?limit=${limit}` : '';
     return this.get<EvalRun[]>(`/api/sdk/agent-configs/${agentID}/eval-runs${qs}`);
+  }
+
+  // ---- code-first source-* (matches tavora-go's /api/sdk/source-*) ----
+
+  /** Upsert a dev draft from the supplied manifest.
+   *
+   *  Endpoint: PUT /api/sdk/source-sync
+   *
+   *  The server validates the manifest, persists a single
+   *  (agent, environment, kind='draft') row per agent in
+   *  agent_versions, and returns the draft hash. Use the per-agent
+   *  result `agents[].agent_id` to look up the server UUID for a
+   *  local id without a follow-up `listAgentConfigs` call. */
+  sourceSync(manifest: SourceSyncManifest): Promise<SourceSyncResult> {
+    return this.put<SourceSyncResult>('/api/sdk/source-sync', manifest);
+  }
+
+  /** Run server-side validation against a manifest without persisting.
+   *  Drives `tavora deploy --dry-run` and CI gates. Returns 200 with
+   *  the full issue list regardless of severity. */
+  async sourceValidate(manifest: SourceSyncManifest): Promise<SourceValidationIssue[]> {
+    const out = await this.post<{ issues: SourceValidationIssue[] }>(
+      '/api/sdk/source-validate',
+      manifest,
+    );
+    return out.issues;
+  }
+
+  /** Promote the latest synced draft per agent in `project` to a new
+   *  immutable published version. `localAgentId` limits the deploy
+   *  to a single agent — the "per-agent escape hatch." */
+  sourceDeploy(input: SourceDeployInput): Promise<SourceDeployResult> {
+    return this.post<SourceDeployResult>('/api/sdk/source-deploy', input);
+  }
+
+  /** Update an agent's code-first local_id without losing the binding.
+   *  Run this BEFORE editing `agent.jsonc:id` so the server-side
+   *  (project, local_id) → agent_id record follows the rename. */
+  sourceRename(input: SourceRenameInput): Promise<SourceRenameResult> {
+    return this.post<SourceRenameResult>('/api/sdk/source-rename', input);
+  }
+
+  /** Destroy a code-managed agent on the server, cascading to versions,
+   *  sessions, and eval runs. Requires `force: true` — the server
+   *  returns "force_required" otherwise so the caller has to confirm
+   *  on the human side first. */
+  sourceDelete(input: SourceDeleteInput): Promise<SourceDeleteResult> {
+    return this.post<SourceDeleteResult>('/api/sdk/source-delete', input);
   }
 
   // ---- scheduled runs ----
