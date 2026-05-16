@@ -1,7 +1,6 @@
 import { TavoraAPIError } from './errors.js';
 import type {
   App,
-  SeedAppResult,
   AppMetrics,
   Index,
   CreateIndexInput,
@@ -37,7 +36,6 @@ import type {
   CreateSkillInput,
   AgentConfig,
   AgentVersion,
-  CreateAgentConfigInput,
   DraftConfig,
   PublishResult,
   SourceSyncManifest,
@@ -173,14 +171,11 @@ export class Client {
     return this.get<App>('/api/sdk/app');
   }
 
-  /** Ensure the app has the platform-invariant default agent
-   *  (one agent + v1.0.0 version + minimal eval suite). Idempotent:
-   *  if any agent already exists, returns `already_seeded: true` with
-   *  no mutation. Equivalent to what signup runs after creating a
-   *  brand-new app. */
-  seedApp(): Promise<SeedAppResult> {
-    return this.post<SeedAppResult>('/api/sdk/app/seed');
-  }
+  // seedApp() was removed on 2026-05-16 with the pivot to a
+  // Convex-style code-first authoring model. There's no
+  // "starter agent + suite" seed on the server anymore — agents
+  // land via sourceSync() (see Source* methods below) when the
+  // operator runs `tavora init` + `tavora dev`.
 
   // ---- metrics ----
 
@@ -599,11 +594,15 @@ export class Client {
     return await res.text();
   }
 
-  // ---- agent configs (Phase 11 versioned agents) ----
+  // ---- agent configs ----
+  //
+  // createAgentConfig was removed on 2026-05-16 with the pivot to
+  // a Convex-style code-first authoring model — agents are created
+  // only via sourceSync(). updateAgentConfig / setActiveAgentVersion /
+  // createAgentVersion came off earlier (when source-deploy replaced
+  // direct REST writes). For renames use sourceRename; for promotion
+  // use publishAgent (UI flow) or sourceDeploy (CLI flow).
 
-  createAgentConfig(input: CreateAgentConfigInput): Promise<AgentConfig> {
-    return this.post<AgentConfig>('/api/sdk/agent-configs', input);
-  }
   listAgentConfigs(): Promise<AgentConfig[]> {
     return this.get<AgentConfig[]>('/api/sdk/agent-configs');
   }
@@ -613,11 +612,6 @@ export class Client {
   deleteAgentConfig(agentID: string): Promise<void> {
     return this.del(`/api/sdk/agent-configs/${agentID}`);
   }
-
-  // updateAgentConfig (rename/describe via REST), setActiveAgentVersion,
-  // and createAgentVersion (direct version creation) were removed when
-  // code-first took over. For renames use sourceRename; for promotion
-  // use publishAgent (UI path) or sourceDeploy (CLI path).
 
   listAgentVersions(agentID: string): Promise<AgentVersion[]> {
     return this.get<AgentVersion[]>(`/api/sdk/agent-configs/${agentID}/versions`);

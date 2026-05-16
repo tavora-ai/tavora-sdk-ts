@@ -11,14 +11,8 @@ export interface App {
   updated_at: string;
 }
 
-/** Result of POST /api/sdk/app/seed. Idempotent: when the
- *  app already had any agent, `already_seeded` is true and no
- *  mutation happens. */
-export interface SeedAppResult {
-  already_seeded: boolean;
-  agent_id?: string;
-  agent_name?: string;
-}
+// SeedAppResult removed on 2026-05-16 — the /app/seed endpoint was
+// dropped with the code-first pivot. See client.ts for the rationale.
 
 // ---- metrics ----
 
@@ -706,16 +700,13 @@ export interface AgentVersion {
   created_at: string;
 }
 
-export interface CreateAgentConfigInput {
-  name: string;
-  description?: string;
-}
-
-// UpdateAgentConfigInput + CreateAgentVersionInput were removed when
-// the corresponding REST endpoints went away. Rename via
-// `sourceRename`; promote via `publishAgent` (UI path) or
-// `sourceDeploy` (CLI path) — both append a kind='published' row
-// through the same internal path.
+// CreateAgentConfigInput + UpdateAgentConfigInput + CreateAgentVersionInput
+// were removed alongside their REST endpoints. After the 2026-05-16
+// code-first pivot, agents are scaffolded via `tavora init` and
+// flow through sourceSync. Renames go through sourceRename;
+// promotion via publishAgent (UI path) or sourceDeploy (CLI path)
+// — both append a kind='published' row through the same internal
+// path.
 
 // ---- code-first source-* (matches tavora-go's /api/sdk/source-*) ----
 
