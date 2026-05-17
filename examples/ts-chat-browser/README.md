@@ -24,7 +24,7 @@ origin.
 ## How to use
 
 1. Start the Tavora backend (`task dev` from repo root).
-2. Grab an app API key from `/platform` → App Settings → API
+2. Grab a project API key from `/platform` → Project Settings → API
    keys.
 3. Open `http://localhost:5174`, paste the key, click Connect.
 4. Send a message; the agent reasoning trace streams inline below the
@@ -36,11 +36,11 @@ The API key is kept in `localStorage` for convenience.
 
 **Do not ship a long-lived `tvr_...` key to end-user browsers in
 production.** This demo does it for local convenience, but a real
-browser app should use the session-minted key pattern documented by the browser session-token pattern:
+browser project should use the session-minted key pattern documented by the browser session-token pattern:
 
 - Your backend authenticates the user (any auth flow).
 - Your backend hits `POST /api/auth/session-token` with the user's JWT
-  to mint a short-lived (8h) app-scoped API key.
+  to mint a short-lived (8h) project-scoped API key.
 - The browser receives that short-lived key and uses it with
   `new Client(baseURL, shortLivedKey)`.
 

@@ -1,6 +1,6 @@
-// Browser demo for @tavora/sdk. Uses an app API key entered
+// Browser demo for @tavora/sdk. Uses a project API key entered
 // in the top bar; for production you'd mint a session-scoped key
-// server-side (see /docs/sdk/browser-app) rather than paste a
+// server-side (see /docs/sdk/browser-project) rather than paste a
 // long-lived tvr_... into the browser.
 
 import { Client, TavoraAPIError, type AgentSession, type AgentEvent } from '@tavora/sdk';
@@ -42,14 +42,14 @@ async function connect() {
   setStatus('connecting…');
   try {
     client = new Client(baseUrl, apiKey);
-    const ws = await client.getApp();
+    const ws = await client.getProject();
     session = await client.createAgentSession({
       title: 'Browser chat',
       system_prompt:
         "You are a helpful assistant running inside Tavora's code-reasoning sandbox. " +
         'For multi-step work use execute_js; for simple questions answer directly.',
     });
-    setStatus(`connected · app ${ws.name} · session ${short(session.id)}`);
+    setStatus(`connected · project ${ws.name} · session ${short(session.id)}`);
     els.message.disabled = false;
     els.send.disabled = false;
     els.message.focus();

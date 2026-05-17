@@ -65,8 +65,8 @@ async function main() {
   const args = parseCliArgs();
   const client = new Client(url, key);
 
-  const ws = await client.getApp();
-  output.write(`Connected to app: ${ws.name}\n`);
+  const ws = await client.getProject();
+  output.write(`Connected to project: ${ws.name}\n`);
 
   const title = args.title || 'Chat';
   let session = await createSession(client, title, args);

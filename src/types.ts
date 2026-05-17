@@ -1,7 +1,7 @@
 // Shared types mirroring the Go SDK structs in sdk/*.go.
 // Field names match the JSON tags on the Go side.
 
-export interface App {
+export interface Project {
   id: string;
   team_id: string;
   name: string;
@@ -11,7 +11,7 @@ export interface App {
   updated_at: string;
 }
 
-// SeedAppResult removed on 2026-05-16 — the /app/seed endpoint was
+// SeedProjectResult removed on 2026-05-16 — the /project/seed endpoint was
 // dropped with the code-first pivot. See client.ts for the rationale.
 
 // ---- metrics ----
@@ -39,7 +39,7 @@ export interface EvalMetrics {
   average_score: number;
 }
 
-export interface AppMetrics {
+export interface ProjectMetrics {
   tokens: TokenMetrics;
   agents: AgentMetrics;
   evals: EvalMetrics;
@@ -47,7 +47,7 @@ export interface AppMetrics {
 
 // ---- files (Storage) ----
 //
-// App-scoped raw blob storage. Distinct from `Document`
+// Project-scoped raw blob storage. Distinct from `Document`
 // (RAG-indexed view) and `Index` (RAG container) — Files is the
 // universal-bytes primitive everything else can reference.
 // Sha256-keyed dedup short-circuit on upload: re-uploading identical
@@ -62,7 +62,7 @@ export interface AppMetrics {
 
 export interface Index {
   id: string;
-  app_id: string;
+  project_id: string;
   name: string;
   description: string;
   /** Customer-owned arbitrary data — Tavora never interprets this. Round-trips as opaque JSON. */
@@ -88,7 +88,7 @@ export interface UpdateIndexInput {
 
 export interface SecretVault {
   id: string;
-  app_id: string;
+  project_id: string;
   name: string;
   metadata: Record<string, unknown>;
   created_at: string;
@@ -118,7 +118,7 @@ export interface UpdateSecretVaultInput {
 
 export interface Document {
   id: string;
-  app_id: string;
+  project_id: string;
   index_id: string;
   filename: string;
   content_type: string;
@@ -304,7 +304,7 @@ export interface ChatCompletionResult {
 
 export interface Conversation {
   id: string;
-  app_id: string;
+  project_id: string;
   title: string;
   system_prompt: string;
   model: string;
@@ -350,7 +350,7 @@ export interface SendMessageResult {
 
 export interface AgentSession {
   id: string;
-  app_id: string;
+  project_id: string;
   title: string;
   system_prompt: string;
   model: string;
@@ -358,7 +358,7 @@ export interface AgentSession {
   metadata: unknown;
   status: string;
   /** Pinned indexes for the agent's `search()` calls. Empty/undefined
-   *  = "all indexes in this app". */
+   *  = "all indexes in this project". */
   index_ids?: string[];
   created_at: string;
   updated_at: string;
@@ -403,8 +403,8 @@ export interface CreateAgentSessionInput {
   target?: 'live' | 'draft';
 
   /** Restrict the sandbox's `search()` to a subset of indexes. Each id
-   *  must belong to the caller's app. Omitted = "all indexes in this
-   *  app"; explicit empty array = sandbox can't search anything. */
+   *  must belong to the caller's project. Omitted = "all indexes in this
+   *  project"; explicit empty array = sandbox can't search anything. */
   index_ids?: string[];
 }
 
@@ -514,7 +514,7 @@ export function asInputRequest(e: AgentEvent): AgentInputRequest | null {
 
 export interface Skill {
   id: string;
-  app_id: string;
+  project_id: string;
   name: string;
   description: string;
   /** "prompt" | "webhook" | "module" | "mcp" */
@@ -535,7 +535,7 @@ export interface Skill {
 
 export interface AgentConfig {
   id: string;
-  app_id: string;
+  project_id: string;
   name: string;
   description: string;
   created_by: string;
@@ -744,7 +744,7 @@ export interface SourceDeleteResult {
 
 export interface ScheduledRun {
   id: string;
-  app_id: string;
+  project_id: string;
   agent_session_id: string;
   name: string;
   cron_expression: string;
@@ -779,7 +779,7 @@ export interface UpdateScheduledRunInput {
 
 export interface EvalCase {
   id: string;
-  app_id: string;
+  project_id: string;
   name: string;
   description: string;
   set_name: string;
@@ -834,7 +834,7 @@ export interface EvalRunDetail {
 
 export interface EvalSuite {
   id: string;
-  app_id: string;
+  project_id: string;
   agent_id: string | null;
   name: string;
   description: string;
@@ -863,7 +863,7 @@ export interface EvalSuiteVersion {
 
 export interface PromptTemplate {
   id: string;
-  app_id: string;
+  project_id: string;
   name: string;
   content: string;
   variables: unknown;
@@ -919,7 +919,7 @@ export interface StudioFixSuggestion {
 
 export interface TenantAuditEntry {
   id: string;
-  app_id: string;
+  project_id: string;
   actor_user_id: string | null;
   actor_api_key_id: string | null;
   action: string;

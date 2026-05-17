@@ -29,7 +29,7 @@ npm start
 --title "..."           Session title (default: "Chat")
 --system-prompt "..."   Agent system prompt (default: built-in)
 --tools search,fetch Comma-separated sandbox tools to enable
---model gemini-2.5-pro  Override the model (default: app default)
+--model gemini-2.5-pro  Override the model (default: project default)
 ```
 
 ## REPL commands

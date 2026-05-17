@@ -1,7 +1,7 @@
 import { TavoraAPIError } from './errors.js';
 import type {
-  App,
-  AppMetrics,
+  Project,
+  ProjectMetrics,
   Index,
   CreateIndexInput,
   UpdateIndexInput,
@@ -76,7 +76,7 @@ export class Client {
    * Create a new Tavora SDK client.
    *
    * @param baseURL - Tavora API server (e.g. `https://api.tavora.ai`).
-   * @param apiKey  - App-scoped API key (starts with `tvr_`), created in the admin UI.
+   * @param apiKey  - Project-scoped API key (starts with `tvr_`), created in the admin UI.
    */
   constructor(baseURL: string, apiKey: string, opts: ClientOptions = {}) {
     this.baseURL = baseURL.replace(/\/$/, '');
@@ -148,14 +148,14 @@ export class Client {
     return this.request<T>('DELETE', path);
   }
 
-  // ---- app ----
+  // ---- project ----
 
-  /** Fetch the app bound to this client's API key. */
-  getApp(): Promise<App> {
-    return this.get<App>('/api/sdk/app');
+  /** Fetch the project bound to this client's API key. */
+  getProject(): Promise<Project> {
+    return this.get<Project>('/api/sdk/project');
   }
 
-  // seedApp() was removed on 2026-05-16 with the pivot to a
+  // seedProject() was removed on 2026-05-16 with the pivot to a
   // Convex-style code-first authoring model. There's no
   // "starter agent + suite" seed on the server anymore — agents
   // land via sourceSync() (see Source* methods below) when the
@@ -163,11 +163,11 @@ export class Client {
 
   // ---- metrics ----
 
-  /** Aggregated metrics for the app (token usage, agent session
+  /** Aggregated metrics for the project (token usage, agent session
    *  counts, eval run aggregates). Useful for billing dashboards and
    *  health checks. */
-  getMetrics(): Promise<AppMetrics> {
-    return this.get<AppMetrics>('/api/sdk/metrics');
+  getMetrics(): Promise<ProjectMetrics> {
+    return this.get<ProjectMetrics>('/api/sdk/metrics');
   }
 
   // ---- indexes (RAG containers) ----
@@ -192,8 +192,8 @@ export class Client {
 
   // ---- secret vaults ----
   //
-  // Envelope-encrypted, app-scoped vaults of named credentials. Each
-  // app designates one vault (PUT /api/sdk/app/vault); tools read it
+  // Envelope-encrypted, project-scoped vaults of named credentials. Each
+  // project designates one vault (PUT /api/sdk/project/vault); tools read it
   // internally — the LLM resolver pulls provider keys, the Brave pack
   // pulls brave_api_key. The agent's JS sandbox cannot read secrets
   // directly; credentials are tool-internal.
@@ -814,7 +814,7 @@ export class Client {
 
   // ---- audit log (Phase 13) ----
 
-  /** Page through the app's audit log. All filter fields
+  /** Page through the project's audit log. All filter fields
    *  optional; server caps `limit` at 500. */
   listAuditLog(filter: AuditListFilter = {}): Promise<AuditListPage> {
     const q = new URLSearchParams();
