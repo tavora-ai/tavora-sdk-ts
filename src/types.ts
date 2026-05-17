@@ -506,61 +506,9 @@ export function asInputRequest(e: AgentEvent): AgentInputRequest | null {
   };
 }
 
-// ---- MCP servers ----
-
-export interface MCPServer {
-  id: string;
-  app_id: string;
-  name: string;
-  url: string;
-  transport: string;
-  auth_config: unknown;
-  enabled: boolean;
-  created_at: string;
-  updated_at: string;
-  last_tested_at?: string | null;
-  tool_count?: number;
-  skill_enabled?: boolean | null;
-}
-
-export interface CreateMCPServerInput {
-  name: string;
-  url: string;
-  transport?: string;
-  auth_config?: unknown;
-}
-
-export interface UpdateMCPServerInput {
-  name?: string;
-  url?: string;
-  transport?: string;
-  auth_config?: unknown;
-  enabled?: boolean;
-}
-
-export interface MCPToolSchema {
-  name: string;
-  description?: string;
-  inputSchema?: unknown;
-}
-
-export interface MCPToolChange {
-  name: string;
-  what: string;
-}
-
-export interface MCPToolDrift {
-  added: string[];
-  removed: string[];
-  changed: MCPToolChange[];
-}
-
-export interface TestMCPServerResult {
-  skill: Record<string, unknown>;
-  tools: MCPToolSchema[];
-  drift: MCPToolDrift;
-  is_first_test: boolean;
-}
+// MCP server types removed alongside their SDK methods on 2026-05-17.
+// MCP servers are now declared inline in `agent.jsonc → mcp` and flow
+// through sourceSync().
 
 // ---- skills ----
 
@@ -579,14 +527,9 @@ export interface Skill {
   updated_at: string;
 }
 
-export interface CreateSkillInput {
-  name: string;
-  description?: string;
-  type?: string;
-  prompt?: string;
-  config?: unknown;
-  parameters?: unknown;
-}
+// CreateSkillInput removed alongside createSkill/deleteSkill — skills
+// are authored in `tavora/agents/<id>/skills/{*.js,*.md}` and arrive
+// via sourceSync.
 
 // ---- agent configs (versioned agents, Phase 11) ----
 
@@ -609,13 +552,10 @@ export interface AgentConfig {
   model: string;
   enabled_capabilities: string[] | null;
 
-  // Per-agent operator settings (PR5 of agent simplification).
+  // Per-agent operator setting. The previous run_eval_on_publish toggle
+  // is gone — the browser no longer publishes, and run-on-deploy lives
+  // on the CLI as `tavora deploy --run-evals`.
   eval_suite_id: string | null;
-  run_eval_on_publish: boolean;
-
-  // Draft slot — non-null when unpublished edits are staged. The
-  // runtime is unaffected by the draft.
-  draft_config: DraftConfig | null;
 
   active_version_id: string | null;
   published_at: string | null;
@@ -632,35 +572,16 @@ export interface AgentConfig {
   code_first_local_id?: string | null;
 }
 
-/** DraftConfig is the staged next-state of an agent. The frontend
- *  always sends the complete intended state — partial-merge isn't
- *  supported, so callers should construct this fully (typically from
- *  the agent's current live columns). */
-export interface DraftConfig {
-  persona_md: string;
-  skills: SkillBinding[];
-  stores: string[];
-  provider: string;
-  model: string;
-  enabled_capabilities?: string[];
-  eval_suite_id?: string;
-  eval_suite_version?: string;
-}
-
-/** PublishResult is what publishAgent and revertAgent return — the
- *  updated agent row plus the new history snapshot appended on the
- *  same transaction. */
-export interface PublishResult {
-  agent: AgentConfig;
-  version: AgentVersion;
-}
+// DraftConfig + PublishResult were removed 2026-05-17 alongside the
+// updateAgentDraft / publishAgent / revertAgent SDK methods. Drafts
+// are an internal concept of the code-first source-sync path; only
+// the deployed config is observable through the SDK.
 
 /** UpdateAgentSettingsInput patches per-agent operator settings.
- *  Pass `eval_suite_id: ""` to clear the pin; omit a field to leave
- *  it unchanged. */
+ *  Pass `eval_suite_id: ""` to clear the pin; omit it to leave the
+ *  pin unchanged. */
 export interface UpdateAgentSettingsInput {
   eval_suite_id?: string;
-  run_eval_on_publish?: boolean;
 }
 
 /** EvalTarget selects which persona an advisory eval uses for its
@@ -872,24 +793,9 @@ export interface EvalCase {
   created_at: string;
 }
 
-export interface CreateEvalCaseInput {
-  name: string;
-  description?: string;
-  set_name?: string;
-  type?: string;
-  config?: unknown;
-  prompt: string;
-  criteria: string;
-  system_prompt?: string;
-  tools?: string[];
-  pass_threshold?: number;
-}
-
-/** Patch fields on an existing eval case. Same shape as create — every
- *  field is optional; omitted fields are left alone. Editing a case
- *  mid-eval-cycle changes what "passing" means for any suite-version
- *  that references it on subsequent runs. */
-export type UpdateEvalCaseInput = Partial<CreateEvalCaseInput>;
+// CreateEvalCaseInput + UpdateEvalCaseInput removed 2026-05-17 — eval
+// cases live in `tavora/agents/<id>/evals/*.json` and arrive via
+// sourceSync; the server no longer accepts direct REST writes.
 
 export interface EvalRun {
   id: string;
@@ -920,10 +826,9 @@ export interface EvalRunDetail {
   results: EvalResult[];
 }
 
-export interface RunEvalInput {
-  set_filter?: string;
-  judge_model?: string;
-}
+// RunEvalInput removed alongside runEval() — the cross-suite ad-hoc
+// run endpoint came off with the Phase 12 promotion teardown. Use
+// runAgentEval() for advisory runs against an agent's pinned suite.
 
 // ---- eval suites + promotions (Phase 12) ----
 
@@ -946,65 +851,13 @@ export interface EvalSuiteVersion {
   created_at: string;
 }
 
-export interface CreateSuiteInput {
-  name: string;
-  description?: string;
-  /** 0–1; defaults to 0.8 server-side if omitted */
-  threshold?: number;
-  /** optional: attach to an agent at create time */
-  agent_id?: string;
-}
+// CreateSuiteInput + NewSuiteVersionInput removed alongside
+// createSuite / newSuiteVersion — suites are now read-only via the
+// SDK after the Phase 12 promotion-gate teardown.
 
-export interface NewSuiteVersionInput {
-  /** New membership snapshot. Omit (not empty []) to inherit from the
-   *  suite's active version — the common bump-version path. */
-  case_ids?: string[];
-}
-
-
-// ---- tool policies + approvals (Phase 14) ----
-
-export interface ToolPolicy {
-  id: string;
-  app_id: string;
-  /** null = app-default row; non-null = per-version override */
-  agent_version_id: string | null;
-  tool_name: string;
-  /** "allow" | "deny" | "approve" */
-  mode: string;
-  config_json: unknown;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ApprovalRequest {
-  id: string;
-  app_id: string;
-  session_id: string | null;
-  agent_version_id: string | null;
-  policy_id: string | null;
-  tool_name: string;
-  args_json: unknown;
-  /** "pending" | "approved" | "rejected" | "expired" */
-  status: string;
-  resolved_by: string | null;
-  resolved_at: string | null;
-  resolution_reason: string;
-  webhook_url: string;
-  webhook_delivered_at: string | null;
-  requested_at: string;
-  updated_at: string;
-}
-
-export interface UpsertToolPolicyInput {
-  /** omit to target the app-default row */
-  agent_version_id?: string;
-  tool_name: string;
-  /** "allow" | "deny" | "approve" */
-  mode: string;
-  config?: Record<string, unknown>;
-}
+// Tool policies + approvals (Phase 14) were deleted in the MVP
+// slim-down on 2026-05-13 — `internal/policy/` and its tables came
+// off the server; the matching SDK types follow.
 
 // ---- prompt templates ----
 

@@ -28,16 +28,9 @@ import type {
   AgentSessionDetail,
   CreateAgentSessionInput,
   AgentEvent,
-  MCPServer,
-  CreateMCPServerInput,
-  UpdateMCPServerInput,
-  TestMCPServerResult,
   Skill,
-  CreateSkillInput,
   AgentConfig,
   AgentVersion,
-  DraftConfig,
-  PublishResult,
   SourceSyncManifest,
   SourceSyncResult,
   SourceValidationIssue,
@@ -54,18 +47,9 @@ import type {
   UpdateScheduledRunInput,
   CreateScheduledRunInput,
   EvalCase,
-  CreateEvalCaseInput,
-  UpdateEvalCaseInput,
   EvalRun,
   EvalRunDetail,
-  RunEvalInput,
   EvalSuite,
-  EvalSuiteVersion,
-  CreateSuiteInput,
-  NewSuiteVersionInput,
-  ToolPolicy,
-  ApprovalRequest,
-  UpsertToolPolicyInput,
   PromptTemplate,
   CreatePromptTemplateInput,
   UpdatePromptTemplateInput,
@@ -529,28 +513,10 @@ export class Client {
     }
   }
 
-  // ---- MCP servers ----
-
-  async listMCPServers(): Promise<MCPServer[]> {
-    const resp = await this.get<{ servers: MCPServer[] }>('/api/sdk/mcp-servers');
-    return resp.servers;
-  }
-  getMCPServer(id: string): Promise<MCPServer> {
-    return this.get<MCPServer>(`/api/sdk/mcp-servers/${id}`);
-  }
-  createMCPServer(input: CreateMCPServerInput): Promise<MCPServer> {
-    return this.post<MCPServer>('/api/sdk/mcp-servers', input);
-  }
-  updateMCPServer(id: string, input: UpdateMCPServerInput): Promise<MCPServer> {
-    return this.patch<MCPServer>(`/api/sdk/mcp-servers/${id}`, input);
-  }
-  deleteMCPServer(id: string): Promise<void> {
-    return this.del(`/api/sdk/mcp-servers/${id}`);
-  }
-  /** Dial an MCP server, capture its tool list, and materialise a skill row. Returns drift vs the prior snapshot. */
-  testMCPServer(id: string): Promise<TestMCPServerResult> {
-    return this.post<TestMCPServerResult>(`/api/sdk/mcp-servers/${id}/test`);
-  }
+  // MCP servers are no longer addressable as their own SDK resource —
+  // post 2026-05-16 they're declared inline in `agent.jsonc → mcp` and
+  // flow through sourceSync(). The /sdk/mcp-servers endpoints came off
+  // the server in the same pass.
 
   // ---- skills ----
 
@@ -560,12 +526,6 @@ export class Client {
   }
   getSkill(id: string): Promise<Skill> {
     return this.get<Skill>(`/api/sdk/skills/${id}`);
-  }
-  createSkill(input: CreateSkillInput): Promise<Skill> {
-    return this.post<Skill>('/api/sdk/skills', input);
-  }
-  deleteSkill(id: string): Promise<void> {
-    return this.del(`/api/sdk/skills/${id}`);
   }
 
   /** Fetch the canonical "how to write a Tavora skill module" guide as
@@ -600,8 +560,9 @@ export class Client {
   // a Convex-style code-first authoring model — agents are created
   // only via sourceSync(). updateAgentConfig / setActiveAgentVersion /
   // createAgentVersion came off earlier (when source-deploy replaced
-  // direct REST writes). For renames use sourceRename; for promotion
-  // use publishAgent (UI flow) or sourceDeploy (CLI flow).
+  // direct REST writes). For renames use sourceRename; promotion is
+  // sourceDeploy-only — the legacy /draft and /publish endpoints were
+  // dropped from the SDK on 2026-05-17.
 
   listAgentConfigs(): Promise<AgentConfig[]> {
     return this.get<AgentConfig[]>('/api/sdk/agent-configs');
@@ -618,36 +579,6 @@ export class Client {
   }
   getAgentVersion(agentID: string, versionID: string): Promise<AgentVersion> {
     return this.get<AgentVersion>(`/api/sdk/agent-configs/${agentID}/versions/${versionID}`);
-  }
-
-  // ---- draft + publish (PR3 of agent simplification) ----
-
-  /** Stage a complete proposed next-state in the agent's draft_config.
-   *  The runtime is unaffected; the live config keeps serving sessions
-   *  until publish. Body is the entire DraftConfig — partial merges
-   *  are not supported. */
-  updateAgentDraft(agentID: string, draft: DraftConfig): Promise<AgentConfig> {
-    return this.patch<AgentConfig>(`/api/sdk/agent-configs/${agentID}/draft`, draft);
-  }
-  /** Clear the staged draft. Idempotent — discarding when no draft
-   *  exists is a no-op (still audited). */
-  discardAgentDraft(agentID: string): Promise<AgentConfig> {
-    return this.del<AgentConfig>(`/api/sdk/agent-configs/${agentID}/draft`);
-  }
-  /** Promote the staged draft to live: appends an immutable
-   *  agent_versions snapshot, mirrors the new live columns, clears
-   *  draft_config, audits — all in one transaction. 409 when no
-   *  draft is staged. */
-  publishAgent(agentID: string): Promise<PublishResult> {
-    return this.post<PublishResult>(`/api/sdk/agent-configs/${agentID}/publish`);
-  }
-  /** Publish a named historical version as the new live config. Same
-   *  audit/version-append semantics as publishAgent — a revert is a
-   *  publish whose source is an existing history row. */
-  revertAgent(agentID: string, versionID: string): Promise<PublishResult> {
-    return this.post<PublishResult>(`/api/sdk/agent-configs/${agentID}/revert`, {
-      version_id: versionID,
-    });
   }
 
   // ---- settings + advisory eval (PR5 of agent simplification) ----
@@ -742,25 +673,16 @@ export class Client {
   }
 
   // ---- evals ----
+  //
+  // Eval cases are authored in `tavora/agents/<id>/evals/*.json` and
+  // arrive via sourceSync — the legacy POST/PATCH/DELETE on
+  // /sdk/evals were removed on 2026-05-17, and runEval() came off with
+  // the eval-gated promotion flow (Phase 12). Use runAgentEval() above
+  // to fire an advisory run against an agent's pinned suite.
 
-  createEvalCase(input: CreateEvalCaseInput): Promise<EvalCase> {
-    return this.post<EvalCase>('/api/sdk/evals', input);
-  }
   async listEvalCases(): Promise<EvalCase[]> {
     const resp = await this.get<{ cases: EvalCase[] }>('/api/sdk/evals');
     return resp.cases;
-  }
-  /** Edit prompt / criteria / config / threshold on an existing eval
-   *  case. The case keeps its identity; suite-version memberships that
-   *  reference it surface the updated content on the next run. */
-  updateEvalCase(id: string, input: UpdateEvalCaseInput): Promise<EvalCase> {
-    return this.patch<EvalCase>(`/api/sdk/evals/${id}`, input);
-  }
-  deleteEvalCase(id: string): Promise<void> {
-    return this.del(`/api/sdk/evals/${id}`);
-  }
-  runEval(input: RunEvalInput = {}): Promise<EvalRun> {
-    return this.post<EvalRun>('/api/sdk/evals/run', input);
   }
   async listEvalRuns(): Promise<EvalRun[]> {
     const resp = await this.get<{ runs: EvalRun[] }>('/api/sdk/eval-runs');
@@ -771,63 +693,22 @@ export class Client {
   }
 
   // ---- eval suites ----
+  //
+  // Suites are read-only via the SDK: the Phase 12 promotion flow was
+  // dismantled in migration 00079, so createSuite / deleteSuite /
+  // newSuiteVersion came off the server. Suites still surface as the
+  // "advisory eval target" an agent can pin via updateAgentSettings.
 
-  createSuite(input: CreateSuiteInput): Promise<EvalSuite> {
-    return this.post<EvalSuite>('/api/sdk/eval-suites', input);
-  }
   listSuites(): Promise<EvalSuite[]> {
     return this.get<EvalSuite[]>('/api/sdk/eval-suites');
   }
   getSuite(suiteID: string): Promise<EvalSuite> {
     return this.get<EvalSuite>(`/api/sdk/eval-suites/${suiteID}`);
   }
-  deleteSuite(suiteID: string): Promise<void> {
-    return this.del(`/api/sdk/eval-suites/${suiteID}`);
-  }
-  /** Freeze the suite's case membership into an immutable version. Omit
-   *  `case_ids` to inherit the suite's current active-version
-   *  membership — the common bump-version path. */
-  newSuiteVersion(suiteID: string, input: NewSuiteVersionInput = {}): Promise<EvalSuiteVersion> {
-    return this.post<EvalSuiteVersion>(`/api/sdk/eval-suites/${suiteID}/versions`, input);
-  }
 
-  // ---- tool policies + approvals (Phase 14) ----
-
-  /** All policies for the app — app-defaults and
-   *  per-version overrides interleaved. Caller filters by
-   *  `agent_version_id == null` to see only defaults. */
-  listToolPolicies(): Promise<ToolPolicy[]> {
-    return this.get<ToolPolicy[]>('/api/sdk/tool-policies');
-  }
-  /** Create or update a policy row keyed by `(app, version, tool)`.
-   *  Last-write-wins on concurrent upserts. */
-  upsertToolPolicy(input: UpsertToolPolicyInput): Promise<ToolPolicy> {
-    return this.put<ToolPolicy>('/api/sdk/tool-policies', input);
-  }
-  /** Remove a policy row. The tool falls back to any app-default
-   *  row (when deleting a version-override) or to the code default
-   *  (allow for most tools, deny for fetch). */
-  deleteToolPolicy(policyID: string): Promise<void> {
-    return this.del(`/api/sdk/tool-policies/${policyID}`);
-  }
-
-  /** Tool calls currently parked on an admin decision. Server caps
-   *  `limit` at 500. */
-  listPendingApprovals(limit = 0, offset = 0): Promise<ApprovalRequest[]> {
-    let path = '/api/sdk/approval-requests/pending';
-    if (limit > 0 || offset > 0) {
-      path += `?limit=${limit}&offset=${offset}`;
-    }
-    return this.get<ApprovalRequest[]>(path);
-  }
-  /** Unblock a parked tool call. Returns 400 if already resolved. */
-  approveApprovalRequest(approvalID: string): Promise<ApprovalRequest> {
-    return this.post<ApprovalRequest>(`/api/sdk/approval-requests/${approvalID}/approve`);
-  }
-  /** Reject a parked tool call with a required reason. */
-  rejectApprovalRequest(approvalID: string, reason: string): Promise<ApprovalRequest> {
-    return this.post<ApprovalRequest>(`/api/sdk/approval-requests/${approvalID}/reject`, { reason });
-  }
+  // tool policies + approvals (Phase 14) were deleted in the
+  // MVP slim-down on 2026-05-13 — `internal/policy/` and its tables
+  // are gone, and so are the SDK methods that talked to them.
 
   // ---- prompt templates ----
 
